@@ -1,16 +1,17 @@
+// ... (Giữ nguyên các import)
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Search, Download, History, Image as ImageIcon, Video, CheckCircle2, Clock, Trash2, 
   SortAsc, SortDesc, Loader2, Square, Calendar, CalendarDays, RefreshCw, Layers, 
   CheckSquare, FolderInput, FolderOpen, FolderSearch, AlertCircle, Sparkles, Zap, 
-  Play, Pause, XCircle, RotateCcw, WifiOff
+  Play, Pause, XCircle, RotateCcw, WifiOff, Wand2
 } from 'lucide-react';
-
+// ... (Giữ nguyên các import firebase)
 import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 
-// --- FIREBASE CONFIGURATION ---
+// ... (Giữ nguyên Firebase Config)
 const firebaseConfig = {
   apiKey: "AIzaSyBypCNcrXr8ZP1uZ1OcdtORW4Y6PTwVxqU",
   authDomain: "reelsdownloader-319d3.firebaseapp.com",
@@ -26,7 +27,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = "reels-downloader";
 
-// --- API BACKEND ---
+// ... (Giữ nguyên apiBackend, mockPythonBackend, generateSingleMockItem, TIME_RANGES)
 const apiBackend = {
   analyzeUrl: async (targetUrl) => {
     try {
@@ -47,7 +48,6 @@ const mockPythonBackend = {
   analyzeUrl: async () => new Promise(r => setTimeout(() => r({ status: 'connected' }), 1000))
 };
 
-// Hàm tạo Mock Data
 const generateSingleMockItem = (index, baseTime) => {
   const isVideo = index % 2 === 0; 
   const timeOffset = index * (Math.random() * 24 + 2) * 60 * 60 * 1000;
@@ -88,8 +88,8 @@ export default function App() {
     to: new Date().toISOString().split('T')[0] 
   });
   
-  // Đổi tên thư mục mặc định
-  const [savePath, setSavePath] = useState('Downloads/Reels_Downloader');
+  // CẬP NHẬT: Hiển thị đúng logic của trình duyệt
+  const [savePath, setSavePath] = useState('Downloads (Mặc định trình duyệt)');
   const [downloadOptions, setDownloadOptions] = useState({ video: true, image: true });
   const [folderError, setFolderError] = useState('');
   
@@ -120,6 +120,7 @@ export default function App() {
   const [historyItems, setHistoryItems] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
 
+  // ... (Giữ nguyên các useEffect)
   useEffect(() => { downloadStateRef.current = downloadState; }, [downloadState]);
 
   useEffect(() => {
@@ -141,7 +142,7 @@ export default function App() {
     }, () => setLoadingHistory(false));
   }, [user]);
 
-  // --- HANDLERS ---
+  // ... (Giữ nguyên các hàm handler phân tích & download)
   const handleStartAnalysis = async () => {
     if (!url) return;
     setIsAnalyzing(true);
@@ -150,6 +151,7 @@ export default function App() {
 
     try {
       const result = await apiBackend.analyzeUrl(url);
+      
       const items = (result.results || []).map((item, index) => ({
         id: `media-${Date.now()}-${index}`,
         type: item.type || 'video',
@@ -294,23 +296,6 @@ export default function App() {
     setDownloadState(prev => ({ ...prev, progress: 100, currentFileIndex: items.length, status: 'completed', currentAction: 'Hoàn tất!' }));
   };
 
-  const handleSelectFolder = async () => {
-    setFolderError('');
-    try {
-      if (window.showDirectoryPicker) {
-        const dir = await window.showDirectoryPicker({ startIn: 'downloads', mode: 'readwrite' });
-        setSavePath(`Downloads/${dir.name}`);
-      } else {
-        setFolderError("Trình duyệt không hỗ trợ chọn thư mục đích danh. File sẽ được lưu vào thư mục Downloads mặc định.");
-        setSavePath("Downloads (Mặc định)");
-      }
-    } catch (err) { 
-        if (err.name !== 'AbortError') {
-            setFolderError("Không thể chọn thư mục. File sẽ lưu vào Downloads mặc định.");
-        }
-    }
-  };
-
   const pauseDownload = () => {
     setDownloadState(prev => ({ ...prev, isPaused: true }));
     downloadStateRef.current.isPaused = true;
@@ -373,6 +358,14 @@ export default function App() {
       return hasSelection;
   }, [downloadState.isDownloading, isAnalyzing, downloadOptions, stats]);
 
+  // CẬP NHẬT GIAO DIỆN CHỌN THƯ MỤC
+  // Chỉ hiển thị thông báo, không gọi API showDirectoryPicker vì hạn chế bảo mật
+  const handleSelectFolder = () => {
+    alert("Do chính sách bảo mật của trình duyệt, file sẽ được tự động lưu vào thư mục 'Downloads' mặc định trên máy tính của bạn.");
+    setSavePath('Downloads (Mặc định)');
+    setFolderError('');
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900/40 to-slate-900 text-slate-100 font-sans selection:bg-pink-500/30 pb-20">
       <header className="sticky top-0 z-50 border-b border-white/10 bg-slate-900/60 backdrop-blur-xl supports-[backdrop-filter]:bg-slate-900/30">
@@ -426,7 +419,7 @@ export default function App() {
                     <input type="text" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://instagram.com/reels/..." disabled={isAnalyzing || downloadState.isDownloading} className="block w-full pl-10 pr-3 py-3 bg-black/20 border border-white/10 rounded-xl focus:ring-2 focus:ring-purple-500 text-white placeholder-slate-600 transition-all disabled:opacity-60"/>
                   </div>
                   <button onClick={toggleAnalysis} disabled={!url && !isAnalyzing} className={`px-6 py-2 rounded-xl font-medium transition-all flex items-center gap-2 shadow-lg min-w-[140px] justify-center ${isAnalyzing ? 'bg-red-500/80 hover:bg-red-500 text-white' : 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white disabled:opacity-50'}`}>
-                    {isAnalyzing ? <><Square size={18} fill="currentColor"/> Dừng</> : <><Zap size={18} fill="currentColor"/> {analyzedData ? 'Quét lại' : 'Phân tích'}</>}
+                    {isAnalyzing ? <><Square size={18} fill="currentColor"/> Dừng</> : <><Zap size={18} fill="currentColor"/> Phân tích</>}
                   </button>
                 </div>
               </div>
