@@ -10,7 +10,7 @@ import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 
-// --- FIREBASE CONFIGURATION (DÙNG CONFIG THẬT) ---
+// --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
   apiKey: "AIzaSyBypCNcrXr8ZP1uZ1OcdtORW4Y6PTwVxqU",
   authDomain: "reelsdownloader-319d3.firebaseapp.com",
@@ -32,9 +32,8 @@ const apiBackend = {
     try {
       const response = await fetch(`/api/analyze?url=${encodeURIComponent(targetUrl)}`);
       if (!response.ok) {
-        // Cố gắng đọc lỗi JSON
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Lỗi server (${response.status})`);
+        throw new Error(errorData.error || 'Lỗi kết nối server (500)');
       }
       return await response.json();
     } catch (error) {
@@ -48,21 +47,21 @@ const mockPythonBackend = {
   analyzeUrl: async () => new Promise(r => setTimeout(() => r({ status: 'connected' }), 1000))
 };
 
+// Hàm tạo Mock Data
 const generateSingleMockItem = (index, baseTime) => {
   const isVideo = index % 2 === 0; 
   const timeOffset = index * (Math.random() * 24 + 2) * 60 * 60 * 1000;
   const itemDate = new Date(baseTime.getTime() - timeOffset);
-  const videoUrl = 'https://www.w3schools.com/html/mov_bbb.mp4'; 
 
   return {
     id: `media-${Date.now()}-${index}`,
     type: isVideo ? 'video' : 'image',
     thumbnail: isVideo 
-      ? `https://placehold.co/600x800/2a1b3d/FFF.png?text=Video+${index + 1}` 
-      : `https://placehold.co/600x600/1a1a2e/FFF.png?text=Image+${index + 1}`,
+      ? 'https://placehold.co/600x800/2a1b3d/FFF.png?text=Video+Content' 
+      : 'https://placehold.co/600x600/1a1a2e/FFF.png?text=Image+Content',
     downloadUrl: isVideo
-      ? videoUrl
-      : `https://placehold.co/600x600/1a1a2e/FFF.png?text=Image_${index + 1}.jpg`,
+      ? 'https://www.w3schools.com/html/mov_bbb.mp4' 
+      : 'https://placehold.co/600x600/1a1a2e/FFF.png?text=Image+Download.jpg',
     uploadedAt: itemDate.toISOString(),
     size: isVideo ? `${(Math.random() * 20 + 5).toFixed(1)} MB` : `${(Math.random() * 2 + 0.5).toFixed(1)} MB`,
     duration: isVideo ? `${Math.floor(Math.random() * 60 + 15)}s` : null,
@@ -89,7 +88,8 @@ export default function App() {
     to: new Date().toISOString().split('T')[0] 
   });
   
-  const [savePath, setSavePath] = useState('Downloads (Mặc định trình duyệt)');
+  // Đổi tên thư mục mặc định
+  const [savePath, setSavePath] = useState('Downloads/Reels_Downloader');
   const [downloadOptions, setDownloadOptions] = useState({ video: true, image: true });
   const [folderError, setFolderError] = useState('');
   
@@ -141,7 +141,7 @@ export default function App() {
     }, () => setLoadingHistory(false));
   }, [user]);
 
-  // --- ANALYSIS HANDLERS ---
+  // --- HANDLERS ---
   const handleStartAnalysis = async () => {
     if (!url) return;
     setIsAnalyzing(true);
@@ -150,7 +150,6 @@ export default function App() {
 
     try {
       const result = await apiBackend.analyzeUrl(url);
-      
       const items = (result.results || []).map((item, index) => ({
         id: `media-${Date.now()}-${index}`,
         type: item.type || 'video',
@@ -162,7 +161,7 @@ export default function App() {
       }));
 
       if (items.length === 0) {
-         console.log("API rỗng, chuyển sang Mock...");
+         console.log("API rỗng, chuyển sang Mock Data Generator...");
          await mockPythonBackend.analyzeUrl();
          startMockAnalysis(); 
       } else {
@@ -171,8 +170,8 @@ export default function App() {
          setIsAnalyzing(false);
       }
     } catch (error) {
-      console.warn("API Error, fallback to mock:", error);
-      startMockAnalysis();
+      console.warn("API Error, switching to mock:", error);
+      startMockAnalysis(); 
     }
   };
 
@@ -220,10 +219,8 @@ export default function App() {
   const toggleAnalysis = () => !isAnalyzing && handleStartAnalysis();
   const toggleSelection = (id) => setAnalyzedData(prev => prev.map(item => item.id === id ? { ...item, selected: !item.selected } : item));
 
-  // --- DOWNLOAD HANDLERS ---
   const downloadRealFile = async (fileUrl, fileName) => {
     try {
-      // Gọi Proxy API Python
       const proxyUrl = `/api/download?url=${encodeURIComponent(fileUrl)}&filename=${encodeURIComponent(fileName)}`;
       const response = await fetch(proxyUrl);
       if (!response.ok) throw new Error('Proxy error');
@@ -286,7 +283,7 @@ export default function App() {
       setDownloadState(prev => ({ ...prev, progress: 50 }));
 
       const ext = item.type === 'video' ? 'mp4' : 'jpg';
-      const fileName = `download_${item.id}.${ext}`;
+      const fileName = `reels_${item.id}.${ext}`;
       await downloadRealFile(item.downloadUrl, fileName);
 
       setDownloadState(prev => ({ ...prev, progress: 100 }));
@@ -308,7 +305,9 @@ export default function App() {
         setSavePath("Downloads (Mặc định)");
       }
     } catch (err) { 
-        if (err.name !== 'AbortError') setFolderError("Không thể chọn thư mục. File sẽ lưu vào Downloads mặc định.");
+        if (err.name !== 'AbortError') {
+            setFolderError("Không thể chọn thư mục. File sẽ lưu vào Downloads mặc định.");
+        }
     }
   };
 
@@ -383,9 +382,13 @@ export default function App() {
               <div className="bg-gradient-to-tr from-indigo-500 to-pink-500 p-2 rounded-xl shadow-lg shadow-purple-500/20">
                 <Sparkles size={20} className="text-white fill-white/20" />
               </div>
-              <h1 className="font-bold text-xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-purple-200">AI Video Assistant</h1>
+              <h1 className="font-bold text-xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-purple-200">
+                Reels Downloader
+              </h1>
             </div>
-            <p className="text-[10px] text-slate-400 mt-1 hidden sm:block font-medium">Phân tích, Tải xuống & Tối ưu nội dung</p>
+            <p className="text-[10px] text-slate-400 mt-1 hidden sm:block font-medium">
+              Phân tích, Tải xuống & Tối ưu nội dung
+            </p>
           </div>
           <nav className="flex bg-white/5 p-1 rounded-xl border border-white/10 backdrop-blur-md">
             <button onClick={() => setActiveTab('download')} className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${activeTab === 'download' ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}>Công cụ</button>
