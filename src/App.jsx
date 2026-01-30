@@ -3,7 +3,7 @@ import {
   Search, Download, History, Image as ImageIcon, Video, CheckCircle2, Clock, Trash2, 
   SortAsc, SortDesc, Loader2, Square, Calendar, CalendarDays, RefreshCw, Layers, 
   CheckSquare, FolderInput, FolderOpen, FolderSearch, AlertCircle, Sparkles, Zap, 
-  Play, Pause, XCircle, RotateCcw, WifiOff, Wand2, Settings, Key
+  Play, Pause, XCircle, RotateCcw, WifiOff, Wand2, Settings, Key, Film
 } from 'lucide-react';
 
 import { initializeApp } from "firebase/app";
@@ -31,10 +31,8 @@ const apiBackend = {
   analyzeUrl: async (targetUrl, cookie = '') => {
     try {
       const headers = {};
-      if (cookie) {
-        headers['x-cookies'] = cookie; // Gửi cookie qua header
-      }
-
+      if (cookie) headers['x-cookies'] = cookie;
+      
       const response = await fetch(`/api/analyze?url=${encodeURIComponent(targetUrl)}`, {
         method: 'GET',
         headers: headers
@@ -42,7 +40,7 @@ const apiBackend = {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Lỗi kết nối server (500)');
+        throw new Error(errorData.error || `Lỗi server (${response.status})`);
       }
       return await response.json();
     } catch (error) {
@@ -56,6 +54,7 @@ const mockPythonBackend = {
   analyzeUrl: async () => new Promise(r => setTimeout(() => r({ status: 'connected' }), 1000))
 };
 
+// Hàm tạo Mock Data
 const generateSingleMockItem = (index, baseTime) => {
   const isVideo = index % 2 === 0; 
   const timeOffset = index * (Math.random() * 24 + 2) * 60 * 60 * 1000;
@@ -65,9 +64,7 @@ const generateSingleMockItem = (index, baseTime) => {
   return {
     id: `media-${Date.now()}-${index}`,
     type: isVideo ? 'video' : 'image',
-    thumbnail: isVideo 
-      ? `https://placehold.co/600x800/2a1b3d/FFF.png?text=Video+${index + 1}` 
-      : `https://placehold.co/600x600/1a1a2e/FFF.png?text=Image+${index + 1}`,
+    thumbnail: null, 
     downloadUrl: isVideo ? videoUrl : `https://placehold.co/600x600/1a1a2e/FFF.png?text=Image_${index + 1}.jpg`,
     uploadedAt: itemDate.toISOString(),
     size: isVideo ? `${(Math.random() * 20 + 5).toFixed(1)} MB` : `${(Math.random() * 2 + 0.5).toFixed(1)} MB`,
@@ -88,15 +85,11 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('download'); 
   const [timeRange, setTimeRange] = useState('1m'); 
-  
-  // State mới: Cookie Facebook
   const [fbCookie, setFbCookie] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
-
   const [savePath, setSavePath] = useState('Downloads (Mặc định)');
   const [downloadOptions, setDownloadOptions] = useState({ video: true, image: true });
   const [folderError, setFolderError] = useState('');
-  
   const [url, setUrl] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analyzedData, setAnalyzedData] = useState(null);
@@ -120,7 +113,6 @@ export default function App() {
   const analysisIntervalRef = useRef(null);
   const startTimeRef = useRef(null);
   const cutoffTimeRef = useRef(null);
-
   const [historyItems, setHistoryItems] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
 
@@ -145,7 +137,6 @@ export default function App() {
     }, () => setLoadingHistory(false));
   }, [user]);
 
-  // --- ANALYSIS HANDLERS ---
   const handleStartAnalysis = async () => {
     if (!url) return;
     setIsAnalyzing(true);
@@ -153,13 +144,12 @@ export default function App() {
     setLimitCount(0);
 
     try {
-      // Truyền thêm Cookie vào API
       const result = await apiBackend.analyzeUrl(url, fbCookie);
       
       const items = (result.results || []).map((item, index) => ({
         id: `media-${Date.now()}-${index}`,
         type: item.type || 'video',
-        thumbnail: item.thumbnail,
+        thumbnail: item.thumbnail, 
         downloadUrl: item.url, 
         uploadedAt: new Date().toISOString(),
         size: 'Unknown',
@@ -168,7 +158,6 @@ export default function App() {
       }));
 
       if (items.length === 0) {
-         // Nếu thất bại dù đã có cookie (hoặc không có)
          console.log("API rỗng, chuyển sang Mock...");
          await mockPythonBackend.analyzeUrl();
          startMockAnalysis(); 
@@ -184,7 +173,6 @@ export default function App() {
   };
 
   const startMockAnalysis = () => {
-    // ... (Giữ nguyên logic mock như cũ)
     const now = new Date();
     startTimeRef.current = now;
     cutoffTimeRef.current = null;
@@ -208,11 +196,8 @@ export default function App() {
   const toggleAnalysis = () => !isAnalyzing && handleStartAnalysis();
   const toggleSelection = (id) => setAnalyzedData(prev => prev.map(item => item.id === id ? { ...item, selected: !item.selected } : item));
 
-  // --- DOWNLOAD HANDLERS (Giữ nguyên) ---
   const downloadRealFile = async (fileUrl, fileName) => {
     try {
-      // Gọi Proxy API Python (Cần truyền cookie nếu video private - Tạm thời proxy chưa hỗ trợ cookie, 
-      // nhưng link lấy được từ analyze thường là signed URL nên có thể tải được một thời gian ngắn)
       const proxyUrl = `/api/download?url=${encodeURIComponent(fileUrl)}&filename=${encodeURIComponent(fileName)}`;
       const response = await fetch(proxyUrl);
       if (!response.ok) throw new Error('Proxy error');
@@ -286,7 +271,6 @@ export default function App() {
     setDownloadState(prev => ({ ...prev, progress: 100, currentFileIndex: items.length, status: 'completed', currentAction: 'Hoàn tất!' }));
   };
 
-  // ... (Giữ nguyên các hàm phụ trợ handleSelectFolder, pause, resume...)
   const handleSelectFolder = async () => {
     setFolderError('');
     try {
@@ -369,33 +353,23 @@ export default function App() {
         {activeTab === 'download' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
             <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 shadow-2xl border border-white/10 space-y-6 relative overflow-hidden group">
-              
-              {/* COOKIE INPUT SECTION */}
               <div className="mb-4">
                  <button onClick={() => setShowAdvanced(!showAdvanced)} className="flex items-center gap-2 text-xs text-purple-300 hover:text-purple-200 transition-colors">
                     <Settings size={14} /> Cấu hình nâng cao (Cookie Facebook)
                  </button>
-                 
                  {showAdvanced && (
                     <div className="mt-3 p-4 bg-black/40 rounded-xl border border-purple-500/20 animate-in slide-in-from-top-2">
                        <label className="block text-xs text-slate-400 mb-2 flex items-center gap-1">
                           <Key size={12} /> Cookie (c_user, xs...) - Dùng để tải video Private/Reels
                        </label>
-                       <textarea 
-                          value={fbCookie}
-                          onChange={(e) => setFbCookie(e.target.value)}
-                          placeholder="Dán chuỗi cookie vào đây (c_user=...; xs=...;)"
-                          className="w-full h-20 bg-black/20 border border-white/10 rounded-lg p-2 text-xs text-slate-300 font-mono focus:outline-none focus:border-purple-500 resize-none"
-                       />
-                       <p className="text-[10px] text-slate-500 mt-1">
-                          * Cách lấy: Mở F12 trên Facebook &rarr; Network &rarr; Refresh &rarr; Chọn request bất kỳ &rarr; Copy 'Cookie' trong Request Headers.
-                       </p>
+                       <textarea value={fbCookie} onChange={(e) => setFbCookie(e.target.value)} placeholder="Dán chuỗi cookie vào đây..." className="w-full h-20 bg-black/20 border border-white/10 rounded-lg p-2 text-xs text-slate-300 font-mono focus:outline-none focus:border-purple-500 resize-none"/>
+                       <p className="text-[10px] text-slate-500 mt-1">* Cách lấy: F12 &rarr; Network &rarr; Refresh &rarr; Request &rarr; Cookie.</p>
                     </div>
                  )}
               </div>
 
-              {/* URL & TIME FILTER */}
               <div className="relative z-10">
+                <label className="text-sm font-medium text-purple-200 mb-3 flex items-center gap-2"><CalendarDays size={16} className="text-pink-400"/> Khoảng thời gian</label>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
                   {TIME_RANGES.map((range) => (
                     <label key={range.id} className={`relative flex items-center justify-center p-2 rounded-lg cursor-pointer transition-all ${timeRange === range.id ? 'bg-indigo-600 text-white shadow-lg font-semibold' : 'bg-white/5 text-slate-400 hover:bg-white/10'}`}>
@@ -404,7 +378,6 @@ export default function App() {
                     </label>
                   ))}
                 </div>
-
                 <div className="flex gap-2">
                   <div className="relative flex-1">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><Search className="h-5 w-5 text-slate-500" /></div>
@@ -417,16 +390,21 @@ export default function App() {
               </div>
             </div>
 
-            {/* RESULTS UI (Giữ nguyên như cũ) */}
             {(analyzedData && analyzedData.length > 0) && (
               <div className="space-y-6">
                 <div className={`bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl transition-all duration-500 overflow-hidden flex flex-col ${isAnalyzing ? 'opacity-90' : 'opacity-100'}`}>
-                  {/* ... (Các phần hiển thị Grid/Tabs giữ nguyên) */}
                   <div className="p-4 bg-black/20 min-h-[300px] max-h-[500px] overflow-y-auto custom-scrollbar">
                      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
                         {displayMedia.map((item) => (
                           <div key={item.id} onClick={() => !isAnalyzing && !downloadState.isDownloading && toggleSelection(item.id)} className={`relative aspect-[3/4] rounded-xl overflow-hidden group border cursor-pointer transition-all ${item.selected ? 'border-purple-500 ring-2 ring-purple-500/30' : 'border-white/5 opacity-60'}`}>
-                            <img src={item.thumbnail} alt="" className="w-full h-full object-cover" />
+                            {item.thumbnail ? (
+                              <img src={item.thumbnail} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <div className={`w-full h-full flex flex-col items-center justify-center p-2 text-center bg-gradient-to-br ${item.type === 'video' ? 'from-purple-900 to-blue-900' : 'from-pink-900 to-rose-900'}`}>
+                                {item.type === 'video' ? <Film size={32} className="text-white/50 mb-2"/> : <ImageIcon size={32} className="text-white/50 mb-2"/>}
+                                <span className="text-xs text-white/70 font-medium">Content {item.id.split('-').pop()}</span>
+                              </div>
+                            )}
                             <div className="absolute top-1 right-1 bg-black/60 p-1.5 rounded-lg border border-white/10">{item.type === 'video' ? <Video size={10} className="text-white" /> : <ImageIcon size={10} className="text-white" />}</div>
                             {item.selected && <div className={`absolute inset-0 flex items-center justify-center transition-all bg-purple-900/20`}><div className="bg-purple-600 rounded-full p-1.5 shadow-lg"><CheckSquare size={16} className="text-white" /></div></div>}
                           </div>
@@ -434,9 +412,7 @@ export default function App() {
                       </div>
                   </div>
                   
-                  {/* Footer & Download Button */}
                   <div className="p-5 border-t border-white/5 bg-black/20 space-y-5">
-                      {/* ... (Giữ nguyên UI Download) */}
                       <button onClick={startDownload} disabled={!canDownload} className="w-full sm:w-auto flex-1 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white py-3 px-8 rounded-xl font-bold shadow-lg shadow-purple-900/40 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 group border border-white/10"><div className="flex items-center gap-2"><Download size={18} /><span>Tải xuống ngay</span></div></button>
                   </div>
                 </div>
@@ -444,7 +420,6 @@ export default function App() {
             )}
           </div>
         )}
-        {/* ... (History Tab giữ nguyên) */}
         {activeTab === 'history' && <div className="text-center text-slate-500">History UI</div>}
       </main>
     </div>
