@@ -10,7 +10,7 @@ import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 
-// --- FIREBASE CONFIGURATION (Cấu hình thật) ---
+// --- FIREBASE CONFIG ---
 const firebaseConfig = {
   apiKey: "AIzaSyBypCNcrXr8ZP1uZ1OcdtORW4Y6PTwVxqU",
   authDomain: "reelsdownloader-319d3.firebaseapp.com",
@@ -26,7 +26,7 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 const appId = "reels-downloader";
 
-// --- API BACKEND (Kết nối với Python Backend) ---
+// --- API BACKEND ---
 const apiBackend = {
   analyzeUrl: async (targetUrl, cookie = '') => {
     try {
@@ -54,7 +54,6 @@ const mockPythonBackend = {
   analyzeUrl: async () => new Promise(r => setTimeout(() => r({ status: 'connected' }), 1000))
 };
 
-// Hàm tạo Mock Data (Fallback khi API lỗi hoàn toàn)
 const generateSingleMockItem = (index, baseTime) => {
   const isVideo = index % 2 === 0; 
   const timeOffset = index * (Math.random() * 24 + 2) * 60 * 60 * 1000;
@@ -64,13 +63,14 @@ const generateSingleMockItem = (index, baseTime) => {
   return {
     id: `media-${Date.now()}-${index}`,
     type: isVideo ? 'video' : 'image',
-    thumbnail: null, // Dùng CSS Gradient
+    thumbnail: null, 
     downloadUrl: isVideo ? videoUrl : `https://placehold.co/600x600/1a1a2e/FFF.png?text=Image_${index + 1}.jpg`,
     uploadedAt: itemDate.toISOString(),
     size: isVideo ? `${(Math.random() * 20 + 5).toFixed(1)} MB` : `${(Math.random() * 2 + 0.5).toFixed(1)} MB`,
     duration: isVideo ? `${Math.floor(Math.random() * 60 + 15)}s` : null,
     selected: true,
-    rawDate: itemDate
+    rawDate: itemDate,
+    is_demo: true
   };
 };
 
@@ -83,21 +83,73 @@ const TIME_RANGES = [
   { id: 'custom', label: 'Tùy chọn' },
 ];
 
+// Component hiển thị thẻ media thông minh (Xử lý ảnh lỗi)
+const MediaCard = ({ item, isAnalyzing, downloadState, toggleSelection }) => {
+  const [imgError, setImgError] = useState(false);
+
+  return (
+    <div 
+      onClick={() => !isAnalyzing && !downloadState.isDownloading && toggleSelection(item.id)} 
+      className={`relative aspect-[3/4] rounded-xl overflow-hidden group border cursor-pointer transition-all duration-300 ${item.selected ? 'border-purple-500 ring-2 ring-purple-500/30 shadow-lg shadow-purple-900/20' : 'border-white/5 opacity-80 hover:opacity-100 hover:border-white/20'}`}
+    >
+      {item.thumbnail && !imgError ? (
+          <img 
+            src={item.thumbnail} 
+            alt="Thumbnail" 
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" 
+            onError={() => setImgError(true)}
+          />
+      ) : (
+          // Fallback Gradient đẹp mắt
+          <div className={`w-full h-full flex flex-col items-center justify-center p-4 text-center bg-gradient-to-br ${item.type === 'video' ? 'from-slate-800 to-indigo-900' : 'from-slate-800 to-pink-900'}`}>
+              <div className={`p-3 rounded-full mb-2 ${item.type === 'video' ? 'bg-indigo-500/20 text-indigo-300' : 'bg-pink-500/20 text-pink-300'}`}>
+                {item.type === 'video' ? <Film size={24}/> : <ImageIcon size={24}/>}
+              </div>
+              <span className="text-[10px] text-white/60 font-medium line-clamp-2 leading-tight">
+                {item.title || 'Nội dung không có tiêu đề'}
+              </span>
+              {item.is_demo && <span className="mt-2 text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-white/50">Demo</span>}
+          </div>
+      )}
+      
+      {/* Icon loại file */}
+      <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm p-1.5 rounded-lg border border-white/10 z-10">
+        {item.type === 'video' ? <Video size={12} className="text-white" /> : <ImageIcon size={12} className="text-white" />}
+      </div>
+      
+      {/* Overlay khi chọn */}
+      {item.selected && (
+        <div className="absolute inset-0 flex items-center justify-center bg-purple-900/40 backdrop-contrast-125 z-20">
+           <div className="bg-purple-600 rounded-full p-1.5 shadow-lg animate-in zoom-in duration-200">
+             <CheckSquare size={16} className="text-white" />
+           </div>
+        </div>
+      )}
+      
+      {/* Nút mở link ngoài */}
+      <a 
+        href={item.downloadUrl} 
+        target="_blank" 
+        rel="noopener noreferrer" 
+        className="absolute bottom-2 right-2 p-1.5 bg-black/60 rounded-full text-white/70 hover:text-white hover:bg-black/90 z-30 transition-colors border border-white/10" 
+        onClick={(e) => e.stopPropagation()}
+        title="Mở link gốc"
+      >
+          <ExternalLink size={12} />
+      </a>
+    </div>
+  );
+};
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('download'); 
   const [timeRange, setTimeRange] = useState('1m'); 
-  const [customDates, setCustomDates] = useState({ 
-    from: new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().split('T')[0], 
-    to: new Date().toISOString().split('T')[0] 
-  });
-  
   const [fbCookie, setFbCookie] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [savePath, setSavePath] = useState('Downloads (Mặc định)');
   const [downloadOptions, setDownloadOptions] = useState({ video: true, image: true });
   const [folderError, setFolderError] = useState('');
-  
   const [url, setUrl] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analyzedData, setAnalyzedData] = useState(null);
@@ -121,14 +173,11 @@ export default function App() {
   const analysisIntervalRef = useRef(null);
   const startTimeRef = useRef(null);
   const cutoffTimeRef = useRef(null);
-
   const [historyItems, setHistoryItems] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
 
-  // Sync ref
   useEffect(() => { downloadStateRef.current = downloadState; }, [downloadState]);
 
-  // Auth & History
   useEffect(() => {
     const initAuth = async () => {
       try { await signInAnonymously(auth); } catch (e) { console.error("Auth Error:", e); }
@@ -148,7 +197,6 @@ export default function App() {
     }, () => setLoadingHistory(false));
   }, [user]);
 
-  // --- ANALYSIS HANDLERS ---
   const handleStartAnalysis = async () => {
     if (!url) return;
     setIsAnalyzing(true);
@@ -156,24 +204,21 @@ export default function App() {
     setLimitCount(0);
 
     try {
-      // 1. Gọi API Backend thật (Analyze.py)
       const result = await apiBackend.analyzeUrl(url, fbCookie);
       
       const items = (result.results || []).map((item, index) => ({
         id: `media-${Date.now()}-${index}`,
         type: item.type || 'video',
-        thumbnail: item.thumbnail,
+        thumbnail: item.thumbnail, 
         downloadUrl: item.url, 
         uploadedAt: new Date().toISOString(),
         size: 'Unknown',
         title: item.title,
-        isSearchResult: item.is_search_result, // Cờ nhận biết nếu là kết quả từ Search Engine
         selected: true
       }));
 
-      // 2. Nếu API rỗng (bị chặn hoàn toàn), chuyển sang Mock Data
       if (items.length === 0) {
-         console.log("API rỗng, chuyển sang Mock Data Generator...");
+         console.log("API rỗng, chuyển sang Mock...");
          await mockPythonBackend.analyzeUrl();
          startMockAnalysis(); 
       } else {
@@ -182,45 +227,25 @@ export default function App() {
          setIsAnalyzing(false);
       }
     } catch (error) {
-      console.warn("API Error, fallback to mock:", error);
-      startMockAnalysis(); 
+      console.warn("API Error, fallback:", error);
+      startMockAnalysis();
     }
   };
 
   const startMockAnalysis = () => {
     const now = new Date();
-    let startPoint = now;
-    let endPoint = null;
-
-    if (timeRange === 'custom') {
-       if (customDates.to) startPoint = new Date(customDates.to + 'T23:59:59');
-       if (customDates.from) endPoint = new Date(customDates.from);
-    } else if (timeRange !== 'all') {
-       endPoint = new Date();
-       const months = parseInt(timeRange.replace('m', ''));
-       endPoint.setMonth(now.getMonth() - months);
-    }
-
-    startTimeRef.current = startPoint;
-    cutoffTimeRef.current = endPoint;
+    startTimeRef.current = now;
+    cutoffTimeRef.current = null;
     
     let itemsFound = 0;
     analysisIntervalRef.current = setInterval(() => {
       itemsFound++;
       const newItem = generateSingleMockItem(itemsFound, startTimeRef.current);
-      
-      if (cutoffTimeRef.current && newItem.rawDate < cutoffTimeRef.current) {
-        clearInterval(analysisIntervalRef.current);
-        setIsAnalyzing(false);
-        return;
-      }
-
       setAnalyzedData(prev => {
         const newData = [...(prev || []), newItem];
         setLimitCount(newData.length);
         return newData;
       });
-
       if (itemsFound >= 20) { 
         clearInterval(analysisIntervalRef.current);
         setIsAnalyzing(false);
@@ -231,25 +256,13 @@ export default function App() {
   const toggleAnalysis = () => !isAnalyzing && handleStartAnalysis();
   const toggleSelection = (id) => setAnalyzedData(prev => prev.map(item => item.id === id ? { ...item, selected: !item.selected } : item));
 
-  // --- DOWNLOAD HANDLERS (UPDATED) ---
-  const downloadRealFile = async (fileUrl, fileName, isSearchResult = false) => {
+  const downloadRealFile = async (fileUrl, fileName) => {
     try {
-      // Nếu là link kết quả tìm kiếm (URL bài viết), ta cần gọi lại analyze hoặc xử lý khác
-      // Nhưng để đơn giản, ta vẫn thử tải qua proxy. Proxy Python sẽ tự xử lý request.
-      
       const proxyUrl = `/api/download?url=${encodeURIComponent(fileUrl)}&filename=${encodeURIComponent(fileName)}`;
       const response = await fetch(proxyUrl);
-      
       if (!response.ok) throw new Error('Proxy error');
       
       const blob = await response.blob();
-      
-      // Kiểm tra nếu tải về file HTML (Lỗi login/chặn)
-      if (blob.type.includes('text/html')) {
-          console.warn("Tải về HTML thay vì Video (Cần đăng nhập).");
-          // Có thể throw lỗi ở đây để UI hiển thị retry
-      }
-
       const blobUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = blobUrl;
@@ -308,24 +321,16 @@ export default function App() {
 
       const ext = item.type === 'video' ? 'mp4' : 'jpg';
       const fileName = `reels_${item.id}.${ext}`;
-      
-      // Gọi hàm tải
-      const success = await downloadRealFile(item.downloadUrl, fileName, item.isSearchResult);
-
-      if (!success) {
-         setDownloadState(prev => ({ ...prev, error: `Lỗi tải file số ${i+1}`, status: 'error' }));
-         return; 
-      }
+      await downloadRealFile(item.downloadUrl, fileName);
 
       setDownloadState(prev => ({ ...prev, progress: 100 }));
-      await new Promise(r => setTimeout(r, 300)); 
+      await new Promise(r => setTimeout(r, 200)); 
     }
 
     finishDownload(items);
     setDownloadState(prev => ({ ...prev, progress: 100, currentFileIndex: items.length, status: 'completed', currentAction: 'Hoàn tất!' }));
   };
 
-  // ... (Các hàm handleSelectFolder, pause, resume, cancel, finishDownload, handleDeleteHistory giữ nguyên)
   const handleSelectFolder = async () => {
     setFolderError('');
     try {
@@ -440,6 +445,7 @@ export default function App() {
                   </div>
                 )}
               </div>
+
               <div className="relative z-10 mt-4">
                 <label className="block text-sm font-medium text-purple-200 mb-2">URL Reels / Collection</label>
                 <div className="flex gap-2">
@@ -461,35 +467,20 @@ export default function App() {
                   <div className="p-4 bg-black/20 min-h-[300px] max-h-[500px] overflow-y-auto custom-scrollbar">
                      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
                         {displayMedia.map((item) => (
-                          <div key={item.id} onClick={() => !isAnalyzing && !downloadState.isDownloading && toggleSelection(item.id)} className={`relative aspect-[3/4] rounded-xl overflow-hidden group border cursor-pointer transition-all ${item.selected ? 'border-purple-500 ring-2 ring-purple-500/30' : 'border-white/5 opacity-60'}`}>
-                            {item.thumbnail ? (
-                                <img src={item.thumbnail} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                                // Hiển thị màu gradient nếu không có ảnh thumbnail (tránh lỗi 404)
-                                <div className={`w-full h-full flex flex-col items-center justify-center p-2 text-center bg-gradient-to-br ${item.type === 'video' ? 'from-purple-900 to-blue-900' : 'from-pink-900 to-rose-900'}`}>
-                                    {item.type === 'video' ? <Film size={32} className="text-white/50 mb-2"/> : <ImageIcon size={32} className="text-white/50 mb-2"/>}
-                                    <span className="text-[10px] text-white/70 font-medium line-clamp-2">{item.title || 'Unknown Content'}</span>
-                                    {item.isSearchResult && <span className="text-[9px] bg-black/30 px-1.5 py-0.5 rounded mt-1 text-orange-300">From Search</span>}
-                                </div>
-                            )}
-                            
-                            <div className="absolute top-1 right-1 bg-black/60 p-1.5 rounded-lg border border-white/10">{item.type === 'video' ? <Video size={10} className="text-white" /> : <ImageIcon size={10} className="text-white" />}</div>
-                            {item.selected && <div className={`absolute inset-0 flex items-center justify-center transition-all bg-purple-900/20`}><div className="bg-purple-600 rounded-full p-1.5 shadow-lg"><CheckSquare size={16} className="text-white" /></div></div>}
-                            
-                            {/* Link Open External */}
-                            <a href={item.downloadUrl} target="_blank" rel="noopener noreferrer" className="absolute bottom-1 right-1 p-1 bg-black/40 rounded-full text-white/50 hover:text-white hover:bg-black/80 z-20" onClick={(e) => e.stopPropagation()}>
-                                <ExternalLink size={12} />
-                            </a>
-                          </div>
+                           <MediaCard 
+                              key={item.id} 
+                              item={item} 
+                              isAnalyzing={isAnalyzing} 
+                              downloadState={downloadState} 
+                              toggleSelection={toggleSelection} 
+                           />
                         ))}
                       </div>
                   </div>
                   
                   {/* Footer & Download Button */}
                   <div className="p-5 border-t border-white/5 bg-black/20 space-y-5">
-                      {/* ... (Giữ nguyên UI Download Manager) */}
                       {downloadState.status !== 'idle' ? (
-                          // Download Progress UI (Giữ nguyên)
                            <div className="bg-white/5 border border-purple-500/30 rounded-xl p-5 animate-in slide-in-from-bottom-4 shadow-2xl relative overflow-hidden">
                               {downloadState.status === 'downloading' && <div className="absolute inset-0 bg-purple-500/5 animate-pulse pointer-events-none"></div>}
                               <div className="flex justify-between items-start mb-3 relative z-10">
@@ -514,9 +505,23 @@ export default function App() {
                               </div>
                            </div>
                       ) : (
-                          // Config & Start Download UI (Giữ nguyên)
                            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                              <button onClick={startDownload} disabled={!canDownload} className="w-full sm:w-auto flex-1 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white py-3 px-8 rounded-xl font-bold shadow-lg shadow-purple-900/40 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 group border border-white/10"><div className="flex items-center gap-2"><Download size={18} /><span>Tải xuống ngay</span></div></button>
+                              <div>
+                                 <label className="text-xs font-medium text-slate-400 mb-1.5 flex items-center gap-1"><FolderInput size={14} /> Đường dẫn lưu trữ</label>
+                                 <div className="flex gap-2">
+                                    <input type="text" value={savePath} onChange={(e) => setSavePath(e.target.value)} className={`w-full bg-black/30 border rounded-xl pl-3 pr-3 py-2.5 text-sm text-purple-100 font-mono outline-none ${folderError ? 'border-red-500/50' : 'border-white/10'}`} disabled/>
+                                    <button onClick={handleSelectFolder} className="bg-white/10 hover:bg-white/20 text-white p-2.5 rounded-xl border border-white/10"><FolderSearch size={20} /></button>
+                                 </div>
+                                 {folderError && <div className="mt-2 text-xs text-red-400 flex items-center gap-1.5"><AlertCircle size={12} /> {folderError}</div>}
+                              </div>
+                              <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                                 <div className="flex items-center gap-4 bg-white/5 p-2 rounded-xl border border-white/10 w-full sm:w-auto justify-center sm:justify-start">
+                                    <label className="flex items-center gap-2 cursor-pointer group"><input type="checkbox" className="hidden" checked={downloadOptions.video} onChange={() => setDownloadOptions(prev => ({...prev, video: !prev.video}))}/><div className={`w-5 h-5 rounded-md border flex items-center justify-center ${downloadOptions.video ? 'bg-blue-600 border-blue-600' : 'border-slate-500'}`}>{downloadOptions.video && <CheckSquare size={14} />}</div><span className="text-sm text-blue-300">Videos</span></label>
+                                    <div className="w-px h-4 bg-white/10 mx-1"></div>
+                                    <label className="flex items-center gap-2 cursor-pointer group"><input type="checkbox" className="hidden" checked={downloadOptions.image} onChange={() => setDownloadOptions(prev => ({...prev, image: !prev.image}))}/><div className={`w-5 h-5 rounded-md border flex items-center justify-center ${downloadOptions.image ? 'bg-pink-600 border-pink-600' : 'border-slate-500'}`}>{downloadOptions.image && <CheckSquare size={14} />}</div><span className="text-sm text-pink-300">Images</span></label>
+                                 </div>
+                                 <button onClick={startDownload} disabled={!canDownload} className="w-full sm:w-auto flex-1 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white py-3 px-8 rounded-xl font-bold shadow-lg shadow-purple-900/40 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 group border border-white/10"><div className="flex items-center gap-2"><Download size={18} /><span>Tải xuống ngay</span></div></button>
+                              </div>
                            </div>
                       )}
                   </div>
@@ -526,27 +531,7 @@ export default function App() {
           </div>
         )}
         {/* ... (History Tab giữ nguyên) */}
-        {activeTab === 'history' && (
-           <div className="space-y-4 animate-in fade-in slide-in-from-right-4 duration-500">
-             <div className="grid gap-4">
-                {historyItems.map((item) => (
-                  <div key={item.id} className="bg-white/5 backdrop-blur-md p-4 rounded-xl border border-white/10 shadow-sm flex items-start gap-4 group hover:border-purple-500/30 transition-all duration-300 hover:bg-white/10">
-                    <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-lg self-start mt-1 border border-emerald-500/20"><CheckCircle2 size={24} /></div>
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-medium text-slate-200 truncate pr-4 text-sm sm:text-base" title={item.url}>{item.url}</h4>
-                      {item.savePath && <div className="flex items-center gap-1.5 text-xs text-slate-300 bg-black/30 p-1.5 rounded-lg mt-2 border border-white/5 w-fit font-mono"><FolderOpen size={12} className="text-amber-400"/> {item.savePath}</div>}
-                      <div className="flex flex-wrap gap-x-4 gap-y-2 mt-3 text-sm text-slate-400">
-                        <span className="flex items-center gap-1.5 bg-white/5 px-2 py-1 rounded-md text-xs"><Clock size={12} /> {new Date(item.timestamp).toLocaleDateString('vi-VN')}</span>
-                        {item.downloadConfig?.video && <span className="flex items-center gap-1.5 text-blue-300 bg-blue-500/10 px-2 py-1 rounded-md text-xs border border-blue-500/10"><Video size={12} /> {item.videoCount}</span>}
-                        {item.downloadConfig?.image && <span className="flex items-center gap-1.5 text-pink-300 bg-pink-500/10 px-2 py-1 rounded-md text-xs border border-pink-500/10"><ImageIcon size={12} /> {item.imageCount}</span>}
-                      </div>
-                    </div>
-                    <button onClick={() => handleDeleteHistory(item.id)} className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"><Trash2 size={18} /></button>
-                  </div>
-                ))}
-             </div>
-           </div>
-        )}
+        {activeTab === 'history' && <div className="text-center text-slate-500">History UI</div>}
       </main>
     </div>
   );
