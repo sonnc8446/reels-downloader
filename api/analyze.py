@@ -10,7 +10,7 @@ try:
     from duckduckgo_search import DDGS
 except ImportError:
     DDGS = None
-    print("Warning: duckduckgo_search not installed. Search strategy will be disabled.")
+    print("Warning: duckduckgo_search not installed.")
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -35,7 +35,8 @@ class handler(BaseHTTPRequestHandler):
             print(f"[Analyze] Processing: {url}")
             media_list = []
 
-            # --- CHIẾN THUẬT 1: Requests + Regex Deep Scan (Quét mã nguồn trang) ---
+            # --- CHIẾN THUẬT 1: Requests + Regex Deep Scan (Cào trực tiếp) ---
+            # Thường chỉ lấy được ~5-10 video mới nhất trong HTML
             try:
                 headers = {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -43,120 +44,97 @@ class handler(BaseHTTPRequestHandler):
                     'Sec-Fetch-Site': 'none',
                     'Upgrade-Insecure-Requests': '1'
                 }
-                if user_cookies:
-                    headers['Cookie'] = user_cookies
+                if user_cookies: headers['Cookie'] = user_cookies
 
-                r = requests.get(url, headers=headers, timeout=15, allow_redirects=True)
+                r = requests.get(url, headers=headers, timeout=10, allow_redirects=True)
                 html = r.text
                 
-                # Tìm các link dạng /videos/ hoặc /reel/ hoặc /watch/
+                # Regex tìm link video
                 video_matches = re.findall(r'https?:\/\/(?:www\.|m\.|web\.)?facebook\.com\/[^\/]+\/videos\/\d+\/?', html)
                 reel_matches = re.findall(r'https?:\/\/(?:www\.|m\.|web\.)?facebook\.com\/reel\/\d+\/?', html)
-                watch_matches = re.findall(r'https?:\/\/(?:www\.|m\.|web\.)?facebook\.com\/watch\/\?v=\d+', html)
                 
-                # Tìm pattern ID video trong JSON
-                id_matches = re.findall(r'"video_id":"(\d+)"', html)
-                id_links = [f"https://www.facebook.com/watch/?v={vid}" for vid in id_matches]
-
-                # Gộp và lọc trùng
-                all_links = list(set(video_matches + reel_matches + watch_matches + id_links))
-                
-                print(f"[Deep Scan] Found {len(all_links)} potential links.")
-
-                for i, link in enumerate(all_links):
+                all_links = list(set(video_matches + reel_matches))
+                for link in all_links:
                     clean_link = link.replace('\\/', '/')
-                    media_list.append({
-                        'type': 'video',
-                        'url': clean_link,
-                        'thumbnail': f'https://placehold.co/600x800/1877f2/FFF?text=FB+Video+{i+1}',
-                        'title': f'Facebook Video {i+1}',
-                        'is_search_result': True
-                    })
-                    if len(media_list) >= 100: break
-
+                    if not any(m['url'] == clean_link for m in media_list):
+                        media_list.append({
+                            'type': 'video',
+                            'url': clean_link,
+                            'thumbnail': 'https://placehold.co/600x800/1877f2/FFF?text=Direct+Hit',
+                            'title': 'Recent Reel (Direct)',
+                            'is_search_result': True
+                        })
             except Exception as e:
                 print(f"[Deep Scan] Error: {e}")
 
-            # --- CHIẾN THUẬT 2: Search Engine Discovery (DuckDuckGo) ---
-            # Nếu chiến thuật 1 không tìm thấy gì và thư viện DDGS có sẵn
-            # Hoặc tìm thấy ít (< 5 video), ta vẫn tìm thêm bằng Search Engine để bổ sung
-            if len(media_list) < 5:
-                if DDGS:
-                    print("[API] Switching to Search Engine Discovery...")
-                    try:
-                        # Trích xuất tên page từ URL để tạo từ khóa
-                        match = re.search(r'facebook\.com\/([^\/]+)', url)
-                        if match:
-                            page_id = match.group(1)
-                            if page_id in ['reel', 'watch', 'videos']: page_id = '' 
+            # --- CHIẾN THUẬT 2: Search Engine Discovery (Nâng cao) ---
+            # Nếu chiến thuật 1 ít kết quả, dùng Search Engine để tìm thêm
+            if len(media_list) < 50 and DDGS:
+                print("[API] Expanding results with Search Engine...")
+                try:
+                    # 1. Lấy ID/Tên Page
+                    # VD: https://www.facebook.com/powerofpositivity/reels -> powerofpositivity
+                    match = re.search(r'facebook\.com\/([^\/]+)', url)
+                    if match:
+                        page_id = match.group(1)
+                        if page_id in ['reel', 'watch', 'videos', 'groups', 'profile']: 
+                            page_id = '' # Bỏ qua các từ khóa hệ thống
+                        
+                        if page_id:
+                            # 2. Tạo danh sách từ khóa thông minh
+                            search_queries = [
+                                f"site:facebook.com/{page_id}/reel",   # Cấu trúc chuẩn 1
+                                f"site:facebook.com/{page_id}/videos", # Cấu trúc chuẩn 2
+                                f'"{page_id}" facebook reels',          # Tìm rộng theo tên
+                                f'"{page_id}" facebook videos'          # Tìm rộng video
+                            ]
                             
-                            if page_id:
-                                queries = [
-                                    f"site:facebook.com/{page_id}/reel",
-                                    f"site:facebook.com/{page_id}/videos"
-                                ]
-                                
-                                with DDGS() as ddgs:
-                                    for q in queries:
-                                        if len(media_list) >= 100: break
-                                        print(f"[Search] Querying: {q}")
-                                        # Tăng max_results lên 100 cho mỗi truy vấn
-                                        results = list(ddgs.text(q, max_results=100))
+                            with DDGS() as ddgs:
+                                for q in search_queries:
+                                    if len(media_list) >= 100: break # Đủ chỉ tiêu thì dừng
+                                    
+                                    print(f"[Search] Querying: {q}")
+                                    try:
+                                        # Dùng ddgs.text thay vì videos để lấy link chính xác hơn
+                                        results = list(ddgs.text(q, max_results=50))
+                                        
                                         for res in results:
                                             href = res.get('href', '')
-                                            if '/reel/' in href or '/videos/' in href:
-                                                if not any(m['url'] == href for m in media_list):
+                                            title = res.get('title', 'Facebook Video')
+                                            
+                                            # Lọc chỉ lấy link Facebook Reels/Videos
+                                            if 'facebook.com' in href and ('/reel/' in href or '/videos/' in href):
+                                                # Clean link (bỏ tham số rác)
+                                                clean_href = href.split('?')[0]
+                                                
+                                                if not any(m['url'] == clean_href for m in media_list):
                                                     media_list.append({
                                                         'type': 'video',
-                                                        'url': href,
-                                                        'thumbnail': 'https://placehold.co/600x800/e65100/FFF?text=Search+Result',
-                                                        'title': res.get('title', 'Facebook Video'),
+                                                        'url': clean_href,
+                                                        'thumbnail': 'https://placehold.co/600x800/e65100/FFF?text=Web+Search', # Frontend sẽ tự thay bằng gradient
+                                                        'title': title,
                                                         'is_search_result': True
                                                     })
-                                                    if len(media_list) >= 100: break
-                    except Exception as se:
-                        print(f"[Search] Error: {se}")
-                else:
-                    print("[API] DuckDuckGo library not installed. Skipping strategy 2.")
+                                    except Exception as q_err:
+                                        print(f"Query '{q}' failed: {q_err}")
+                                        
+                except Exception as se:
+                    print(f"[Search] Error: {se}")
 
-            # --- CHIẾN THUẬT 3: yt-dlp (Dự phòng cuối cùng) ---
-            if len(media_list) == 0:
-                try:
-                    print("[API] Trying yt-dlp fallback...")
-                    ydl_opts = {
-                        'quiet': True,
-                        'no_warnings': True,
-                        'extract_flat': True,
-                        'noplaylist': True,
-                        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    }
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                        info = ydl.extract_info(url, download=False)
-                        if 'entries' in info:
-                            for entry in info['entries']:
-                                media_list.append({
-                                    'type': 'video',
-                                    'url': entry.get('url'),
-                                    'thumbnail': 'https://placehold.co/600x800/333/FFF?text=YTDLP',
-                                    'title': entry.get('title', 'Video'),
-                                    'is_search_result': True
-                                })
-                                if len(media_list) >= 100: break
-                except:
-                    pass
-
-            # Fallback Demo nếu vẫn trắng tay
+            # --- CHIẾN THUẬT 3: Fallback Demo ---
+            # Chỉ hiển thị nếu KHÔNG tìm được bất kỳ video nào
             if not media_list:
                 print("[API] All failed -> Returning Demo.")
                 media_list = [{
                     'type': 'video',
                     'url': 'https://www.w3schools.com/html/mov_bbb.mp4',
                     'thumbnail': None,
-                    'title': 'Demo (Không tìm thấy link videos)',
+                    'title': 'Demo (Không tìm thấy video nào)',
                     'is_demo': True
                 }]
             
-            # Trả về tối đa 100 kết quả
+            # Trả về kết quả (đã lọc trùng lặp)
+            print(f"[API] Returning {len(media_list)} videos.")
             self.wfile.write(json.dumps({'results': media_list[:100]}).encode('utf-8'))
 
         except Exception as e:
