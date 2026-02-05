@@ -79,7 +79,8 @@ class handler(BaseHTTPRequestHandler):
 
             # --- CHIẾN THUẬT 2: Search Engine Discovery (DuckDuckGo) ---
             # Nếu chiến thuật 1 không tìm thấy gì và thư viện DDGS có sẵn
-            if len(media_list) == 0:
+            # Hoặc tìm thấy ít (< 5 video), ta vẫn tìm thêm bằng Search Engine để bổ sung
+            if len(media_list) < 5:
                 if DDGS:
                     print("[API] Switching to Search Engine Discovery...")
                     try:
@@ -99,7 +100,8 @@ class handler(BaseHTTPRequestHandler):
                                     for q in queries:
                                         if len(media_list) >= 100: break
                                         print(f"[Search] Querying: {q}")
-                                        results = list(ddgs.text(q, max_results=20))
+                                        # Tăng max_results lên 100 cho mỗi truy vấn
+                                        results = list(ddgs.text(q, max_results=100))
                                         for res in results:
                                             href = res.get('href', '')
                                             if '/reel/' in href or '/videos/' in href:
@@ -111,6 +113,7 @@ class handler(BaseHTTPRequestHandler):
                                                         'title': res.get('title', 'Facebook Video'),
                                                         'is_search_result': True
                                                     })
+                                                    if len(media_list) >= 100: break
                     except Exception as se:
                         print(f"[Search] Error: {se}")
                 else:
