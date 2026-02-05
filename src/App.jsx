@@ -31,7 +31,6 @@ const apiBackend = {
   analyzeUrl: async (targetUrl, cookie = '') => {
     try {
       const headers = {};
-      // Gửi cookie lên server qua header
       if (cookie) headers['x-cookies'] = cookie;
       
       const response = await fetch(`/api/analyze?url=${encodeURIComponent(targetUrl)}`, {
@@ -51,7 +50,11 @@ const apiBackend = {
   }
 };
 
-// Hàm tạo Mock Data (Chỉ dùng khi API sập hoàn toàn)
+const mockPythonBackend = {
+  analyzeUrl: async () => new Promise(r => setTimeout(() => r({ status: 'connected' }), 1000))
+};
+
+// Hàm tạo Mock Data
 const generateSingleMockItem = (index, baseTime) => {
   const isVideo = index % 2 === 0; 
   const timeOffset = index * (Math.random() * 24 + 2) * 60 * 60 * 1000;
@@ -73,7 +76,6 @@ const generateSingleMockItem = (index, baseTime) => {
   };
 };
 
-// ĐÃ KHÔI PHỤC ĐẦY ĐỦ 6 MỐC THỜI GIAN
 const TIME_RANGES = [
   { id: '1m', label: '1 tháng qua' },
   { id: '2m', label: '2 tháng qua' },
@@ -174,7 +176,6 @@ export default function App() {
     setLimitCount(0);
 
     try {
-      // Gọi API thật
       const result = await apiBackend.analyzeUrl(url, fbCookie);
       
       const items = (result.results || []).map((item, index) => ({
@@ -186,12 +187,12 @@ export default function App() {
         size: 'Unknown',
         title: item.title,
         selected: true,
-        is_demo: item.is_demo // Cờ nhận biết video thật hay giả
+        is_demo: item.is_demo 
       }));
 
-      // Nếu API trả về mảng rỗng (thất bại hoàn toàn), mới dùng Mock cục bộ
       if (items.length === 0) {
-         console.log("API rỗng, chuyển sang Mock Data Generator...");
+         console.log("API rỗng, chuyển sang Mock...");
+         await mockPythonBackend.analyzeUrl();
          startMockAnalysis(); 
       } else {
          setAnalyzedData(items);
@@ -217,7 +218,7 @@ export default function App() {
         setLimitCount(newData.length);
         return newData;
       });
-      if (itemsFound >= 5) { // Giảm số lượng demo để không rối
+      if (itemsFound >= 5) { 
         clearInterval(analysisIntervalRef.current);
         setIsAnalyzing(false);
       }
@@ -229,9 +230,11 @@ export default function App() {
 
   const downloadRealFile = async (fileUrl, fileName) => {
     try {
+      // Gọi Proxy API Python
       const proxyUrl = `/api/download?url=${encodeURIComponent(fileUrl)}&filename=${encodeURIComponent(fileName)}`;
       const response = await fetch(proxyUrl);
       if (!response.ok) throw new Error('Proxy error');
+      
       const blob = await response.blob();
       const blobUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -465,7 +468,8 @@ export default function App() {
             )}
           </div>
         )}
-        {/* ... */}
+        {/* ... (History Tab giữ nguyên) */}
+        {activeTab === 'history' && <div className="text-center text-slate-500">History UI</div>}
       </main>
     </div>
   );
