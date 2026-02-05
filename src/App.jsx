@@ -10,7 +10,7 @@ import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 
-// --- FIREBASE CONFIG ---
+// --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
   apiKey: "AIzaSyBypCNcrXr8ZP1uZ1OcdtORW4Y6PTwVxqU",
   authDomain: "reelsdownloader-319d3.firebaseapp.com",
@@ -54,6 +54,7 @@ const mockPythonBackend = {
   analyzeUrl: async () => new Promise(r => setTimeout(() => r({ status: 'connected' }), 1000))
 };
 
+// Hàm tạo Mock Data
 const generateSingleMockItem = (index, baseTime) => {
   const isVideo = index % 2 === 0; 
   const timeOffset = index * (Math.random() * 24 + 2) * 60 * 60 * 1000;
@@ -67,11 +68,10 @@ const generateSingleMockItem = (index, baseTime) => {
     downloadUrl: isVideo ? videoUrl : `https://placehold.co/600x600/1a1a2e/FFF.png?text=Image_${index + 1}.jpg`,
     uploadedAt: itemDate.toISOString(),
     size: 'Unknown',
-    duration: null,
+    title: isVideo ? `Video Result ${index + 1}` : `Image Result ${index + 1}`,
     selected: true,
     rawDate: itemDate,
-    is_demo: true,
-    title: 'Demo Content'
+    is_demo: true
   };
 };
 
@@ -85,22 +85,30 @@ const TIME_RANGES = [
 ];
 
 const MediaCard = ({ item, isAnalyzing, downloadState, toggleSelection }) => {
+  const [imgError, setImgError] = useState(false);
+
   return (
     <div 
       onClick={() => !isAnalyzing && !downloadState.isDownloading && toggleSelection(item.id)} 
       className={`relative aspect-[3/4] rounded-xl overflow-hidden group border cursor-pointer transition-all duration-300 ${item.selected ? 'border-purple-500 ring-2 ring-purple-500/30 shadow-lg shadow-purple-900/20' : 'border-white/5 opacity-80 hover:opacity-100 hover:border-white/20'}`}
     >
-      {item.thumbnail ? (
-          <img src={item.thumbnail} alt="Thumb" className="w-full h-full object-cover" />
+      {item.thumbnail && !imgError && !item.thumbnail.includes('placehold') ? (
+          <img 
+            src={item.thumbnail} 
+            alt="Thumbnail" 
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" 
+            onError={() => setImgError(true)}
+          />
       ) : (
           <div className={`w-full h-full flex flex-col items-center justify-center p-4 text-center bg-gradient-to-br ${item.type === 'video' ? 'from-slate-800 to-indigo-900' : 'from-slate-800 to-pink-900'}`}>
               <div className={`p-3 rounded-full mb-2 ${item.type === 'video' ? 'bg-indigo-500/20 text-indigo-300' : 'bg-pink-500/20 text-pink-300'}`}>
                 {item.type === 'video' ? <Film size={24}/> : <ImageIcon size={24}/>}
               </div>
-              <span className="text-[10px] text-white/60 font-medium line-clamp-2">
+              <span className="text-[10px] text-white/60 font-medium line-clamp-2 leading-tight">
                 {item.title || 'Nội dung Facebook'}
               </span>
-              {item.is_demo && <span className="mt-2 text-[9px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-200 border border-red-500/30">Demo Mode</span>}
+              {item.isSearchResult && <span className="mt-2 text-[9px] px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-200 border border-orange-500/30">Web Search</span>}
+              {item.is_demo && <span className="mt-2 text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-white/50">Demo</span>}
           </div>
       )}
       
@@ -110,7 +118,7 @@ const MediaCard = ({ item, isAnalyzing, downloadState, toggleSelection }) => {
       
       {item.selected && (
         <div className="absolute inset-0 flex items-center justify-center bg-purple-900/40 backdrop-contrast-125 z-20">
-           <div className="bg-purple-600 rounded-full p-1.5 shadow-lg"><CheckSquare size={16} className="text-white" /></div>
+           <div className="bg-purple-600 rounded-full p-1.5 shadow-lg animate-in zoom-in duration-200"><CheckSquare size={16} className="text-white" /></div>
         </div>
       )}
       
@@ -136,7 +144,6 @@ export default function App() {
   const [sortOrder, setSortOrder] = useState('desc');
   const [limitCount, setLimitCount] = useState(0);
   
-  // SỬA LỖI TRANG TRẮNG: Khởi tạo giá trị mặc định an toàn cho customDates
   const [customDates, setCustomDates] = useState({ 
     from: new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().split('T')[0], 
     to: new Date().toISOString().split('T')[0] 
@@ -191,12 +198,13 @@ export default function App() {
         uploadedAt: new Date().toISOString(),
         size: 'Unknown',
         title: item.title,
-        selected: true,
-        is_demo: item.is_demo 
+        isSearchResult: item.is_search_result,
+        selected: true
       }));
 
       if (items.length === 0) {
-         console.log("API rỗng, chuyển sang Mock Data Generator...");
+         console.log("API rỗng, chuyển sang Mock...");
+         await mockPythonBackend.analyzeUrl();
          startMockAnalysis(); 
       } else {
          setAnalyzedData(items);
@@ -237,6 +245,7 @@ export default function App() {
       const proxyUrl = `/api/download?url=${encodeURIComponent(fileUrl)}&filename=${encodeURIComponent(fileName)}`;
       const response = await fetch(proxyUrl);
       if (!response.ok) throw new Error('Proxy error');
+      
       const blob = await response.blob();
       const blobUrl = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -390,11 +399,10 @@ export default function App() {
                     </label>
                   ))}
                 </div>
-                {/* SỬA LỖI: Thêm kiểm tra an toàn customDates?.from */}
                 {timeRange === 'custom' && (
                   <div className="mt-4 p-4 bg-black/20 rounded-xl border border-white/5 animate-in slide-in-from-top-2 flex gap-4">
-                    <div className="flex-1"><label className="text-xs text-slate-400 mb-1">Từ ngày</label><input type="date" value={customDates?.from || ''} onChange={(e) => setCustomDates(p => ({...p, from: e.target.value}))} className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-purple-500"/></div>
-                    <div className="flex-1"><label className="text-xs text-slate-400 mb-1">Đến ngày</label><input type="date" value={customDates?.to || ''} onChange={(e) => setCustomDates(p => ({...p, to: e.target.value}))} className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-purple-500"/></div>
+                    <div className="flex-1"><label className="text-xs text-slate-400 mb-1">Từ ngày</label><input type="date" value={customDates.from} onChange={(e) => setCustomDates(p => ({...p, from: e.target.value}))} className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-purple-500"/></div>
+                    <div className="flex-1"><label className="text-xs text-slate-400 mb-1">Đến ngày</label><input type="date" value={customDates.to} onChange={(e) => setCustomDates(p => ({...p, to: e.target.value}))} className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-sm text-white focus:outline-none focus:border-purple-500"/></div>
                   </div>
                 )}
               </div>
@@ -416,7 +424,7 @@ export default function App() {
             {(analyzedData && analyzedData.length > 0) && (
               <div className="space-y-6">
                 <div className={`bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl transition-all duration-500 overflow-hidden flex flex-col ${isAnalyzing ? 'opacity-90' : 'opacity-100'}`}>
-                  {/* ... (Các phần hiển thị Grid/Tabs giữ nguyên) ... */}
+                  {/* ... (Phần Tabs và Sort giữ nguyên) ... */}
                   <div className="p-4 bg-black/20 min-h-[300px] max-h-[500px] overflow-y-auto custom-scrollbar">
                      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
                         {displayMedia.map((item) => (
@@ -435,7 +443,7 @@ export default function App() {
                   <div className="p-5 border-t border-white/5 bg-black/20 space-y-5">
                       {downloadState.status !== 'idle' ? (
                            <div className="bg-white/5 border border-purple-500/30 rounded-xl p-5 animate-in slide-in-from-bottom-4 shadow-2xl relative overflow-hidden">
-                              {/* ... (Progress bar giữ nguyên) */}
+                              {/* ... (Phần Progress bar giữ nguyên) ... */}
                               <div className="flex gap-3 justify-end relative z-10">
                                  {downloadState.status === 'downloading' && <button onClick={pauseDownload} className="px-4 py-2 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-200 rounded-lg text-xs font-bold border border-yellow-500/20 flex items-center gap-1.5 transition-all"><Pause size={14} fill="currentColor"/> Tạm dừng</button>}
                                  {(downloadState.status === 'paused') && <button onClick={resumeDownload} className="px-4 py-2 bg-green-500/10 hover:bg-green-500/20 text-green-200 rounded-lg text-xs font-bold border border-green-500/20 flex items-center gap-1.5 transition-all"><Play size={14} fill="currentColor"/> Tiếp tục</button>}
@@ -444,6 +452,7 @@ export default function App() {
                            </div>
                       ) : (
                            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                              {/* KHÔI PHỤC: Lựa chọn đường dẫn */}
                               <div>
                                  <label className="text-xs font-medium text-slate-400 mb-1.5 flex items-center gap-1"><FolderInput size={14} /> Đường dẫn lưu trữ</label>
                                  <div className="flex gap-2">
@@ -452,7 +461,9 @@ export default function App() {
                                  </div>
                                  {folderError && <div className="mt-2 text-xs text-red-400 flex items-center gap-1.5"><AlertCircle size={12} /> {folderError}</div>}
                               </div>
+
                               <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                                 {/* KHÔI PHỤC: Checkbox Video/Image */}
                                  <div className="flex items-center gap-4 bg-white/5 p-2 rounded-xl border border-white/10 w-full sm:w-auto justify-center sm:justify-start">
                                     <label className="flex items-center gap-2 cursor-pointer group"><input type="checkbox" className="hidden" checked={downloadOptions.video} onChange={() => setDownloadOptions(prev => ({...prev, video: !prev.video}))}/><div className={`w-5 h-5 rounded-md border flex items-center justify-center ${downloadOptions.video ? 'bg-blue-600 border-blue-600' : 'border-slate-500'}`}>{downloadOptions.video && <CheckSquare size={14} />}</div><span className="text-sm text-blue-300">Videos</span></label>
                                     <div className="w-px h-4 bg-white/10 mx-1"></div>
@@ -468,7 +479,8 @@ export default function App() {
             )}
           </div>
         )}
-        {/* ... */}
+        {/* ... (History Tab giữ nguyên) */}
+        {activeTab === 'history' && <div className="text-center text-slate-500">History UI</div>}
       </main>
     </div>
   );
