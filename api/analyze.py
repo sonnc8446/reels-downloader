@@ -2,10 +2,12 @@ from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import json
 import re
-import requests
 import yt_dlp
+import requests
+import tempfile
+import os
 
-# Thử import DDGS, nếu lỗi thì bỏ qua
+# Thử import DDGS
 try:
     from duckduckgo_search import DDGS
 except ImportError:
@@ -13,7 +15,6 @@ except ImportError:
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        # 1. CORS Setup
         self.send_response(200)
         self.send_header('Content-type', 'application/json')
         self.send_header('Access-Control-Allow-Origin', '*')
@@ -32,181 +33,132 @@ class handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({'error': 'Thiếu URL'}).encode('utf-8'))
                 return
 
-            media_list = []
-            seen_ids = set()
-
             print(f"[Analyze] Processing: {url}")
+            media_list = []
+            seen_urls = set()
 
-            # ==================================================================
-            # CHIẾN THUẬT 1: MBASIC.FACEBOOK.COM (Hiệu quả nhất cho Server)
-            # ==================================================================
-            try:
-                # Chuyển đổi sang link mbasic
-                mbasic_url = url.replace("www.facebook.com", "mbasic.facebook.com") \
-                                .replace("web.facebook.com", "mbasic.facebook.com")
-                if "mbasic.facebook.com" not in mbasic_url:
-                    mbasic_url = mbasic_url.replace("facebook.com", "mbasic.facebook.com")
-                
-                print(f"[Strategy 1] Trying mbasic: {mbasic_url}")
-
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Linux; Android 4.4.2; Nexus 4 Build/KOT49H) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/34.0.1847.114 Mobile Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-                }
-                if user_cookies: headers['Cookie'] = user_cookies
-
-                r = requests.get(mbasic_url, headers=headers, timeout=10)
-                html = r.text
-
-                # Tìm các link video trong mbasic (thường nằm trong thẻ a href)
-                # Pattern: /reel/12345/ hoặc /video.php?v=12345
-                hrefs = re.findall(r'href="([^"]+)"', html)
-                
-                for href in hrefs:
-                    vid_id = None
-                    # Parse ID từ các dạng link khác nhau
-                    if '/reel/' in href:
-                        match = re.search(r'\/reel\/(\d+)', href)
-                        if match: vid_id = match.group(1)
-                    elif 'video.php' in href:
-                        match = re.search(r'v=(\d+)', href)
-                        if match: vid_id = match.group(1)
-                    elif '/videos/' in href:
-                         match = re.search(r'\/videos\/(\d+)', href)
-                         if match: vid_id = match.group(1)
-
-                    if vid_id and vid_id not in seen_ids:
-                        seen_ids.add(vid_id)
-                        # Tái tạo link chuẩn để frontend hiển thị và backend download xử lý sau
-                        clean_url = f"https://www.facebook.com/reel/{vid_id}"
-                        media_list.append({
-                            'id': f"mb-{vid_id}",
-                            'type': 'video',
-                            'url': clean_url,
-                            'thumbnail': f'https://placehold.co/600x800/1877f2/FFF?text=Reel+{vid_id[-4:]}',
-                            'title': f'Facebook Reel #{vid_id}',
-                            'is_search_result': True
-                        })
-                        if len(media_list) >= 50: break
-
-            except Exception as e:
-                print(f"[mbasic] Error: {e}")
-
-            # ==================================================================
-            # CHIẾN THUẬT 2: Quét ID trong HTML gốc (Desktop)
-            # ==================================================================
-            if len(media_list) < 5:
+            # --- KIỂM TRA LOẠI URL ---
+            # Nếu là link danh sách (Reels tab / Profile), ưu tiên dùng Search Engine
+            is_list_url = '/reels' in url or '/videos' in url or 'profile.php' in url
+            
+            # --- CHIẾN THUẬT 1: SEARCH ENGINE (DuckDuckGo) ---
+            # Đây là cách hiệu quả nhất để lấy danh sách video mà không bị FB chặn
+            if is_list_url and DDGS:
+                print("[Strategy 1] DuckDuckGo Search Discovery...")
                 try:
-                    print("[Strategy 2] Scanning original HTML for IDs...")
-                    headers_desktop = {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    }
-                    if user_cookies: headers_desktop['Cookie'] = user_cookies
-                    
-                    r = requests.get(url, headers=headers_desktop, timeout=15)
-                    html_desktop = r.text
-
-                    # Tìm mọi chuỗi số dài (ID video thường có 15-16 số) nằm cạnh từ khóa video
-                    # Ví dụ: "video_id":"123456789012345"
-                    potential_ids = re.findall(r'"video_id":"(\d+)"', html_desktop)
-                    potential_ids += re.findall(r'"videoId":"(\d+)"', html_desktop)
-                    potential_ids += re.findall(r'\/videos\/(\d+)\/', html_desktop)
-
-                    for vid in potential_ids:
-                        if vid not in seen_ids and len(vid) > 10:
-                            seen_ids.add(vid)
-                            clean_url = f"https://www.facebook.com/reel/{vid}"
-                            media_list.append({
-                                'id': f"ds-{vid}",
-                                'type': 'video',
-                                'url': clean_url,
-                                'thumbnail': f'https://placehold.co/600x800/2e7d32/FFF?text=Video+{vid[-4:]}',
-                                'title': f'Detected Video #{vid}',
-                                'is_search_result': True
-                            })
-                            if len(media_list) >= 50: break
-                except Exception as e:
-                    print(f"[Desktop Scan] Error: {e}")
-
-            # ==================================================================
-            # CHIẾN THUẬT 3: Search Engine (DuckDuckGo)
-            # ==================================================================
-            if len(media_list) < 5 and DDGS:
-                try:
-                    print("[Strategy 3] DuckDuckGo Search...")
+                    # Trích xuất tên Page
+                    page_name = ""
                     match = re.search(r'facebook\.com\/([^\/\?&]+)', url)
                     if match:
-                        page_id = match.group(1)
-                        if page_id not in ['reel', 'watch', 'videos', 'groups']:
-                            queries = [f'site:facebook.com/{page_id}/reel']
-                            
-                            with DDGS() as ddgs:
-                                for q in queries:
-                                    if len(media_list) >= 50: break
-                                    results = list(ddgs.text(q, max_results=30))
-                                    for res in results:
-                                        href = res.get('href', '')
-                                        if '/reel/' in href or '/videos/' in href:
-                                            clean_href = href.split('?')[0]
-                                            # Trích xuất ID từ link tìm được để tránh trùng
-                                            vid_match = re.search(r'\/(\d+)', clean_href)
-                                            vid_id = vid_match.group(1) if vid_match else clean_href
-                                            
-                                            if vid_id not in seen_ids:
-                                                seen_ids.add(vid_id)
-                                                media_list.append({
-                                                    'id': f"ddg-{len(media_list)}",
-                                                    'type': 'video',
-                                                    'url': clean_href,
-                                                    'thumbnail': 'https://placehold.co/600x800/e65100/FFF?text=Web+Result',
-                                                    'title': res.get('title', 'Facebook Video'),
-                                                    'is_search_result': True
-                                                })
-                except Exception as e:
-                    print(f"[Search] Error: {e}")
+                        page_name = match.group(1)
+                        if page_name in ['reel', 'watch', 'videos', 'groups', 'people']: page_name = ""
+                    
+                    if page_name:
+                        # Tạo các truy vấn tìm kiếm thông minh
+                        queries = [
+                            f'site:facebook.com/{page_name}/reel',
+                            f'site:facebook.com/{page_name}/videos',
+                            f'{page_name} facebook reels video'
+                        ]
 
-            # ==================================================================
-            # CHIẾN THUẬT 4: yt-dlp (Flat Playlist) - Cuối cùng
-            # ==================================================================
+                        with DDGS() as ddgs:
+                            for q in queries:
+                                if len(media_list) >= 50: break
+                                print(f"[Search] Querying: {q}")
+                                # Tìm kiếm text trả về kết quả link
+                                results = list(ddgs.text(q, max_results=30))
+                                
+                                for res in results:
+                                    href = res.get('href', '')
+                                    title = res.get('title', 'Facebook Video')
+                                    
+                                    # Lọc lấy link video
+                                    if 'facebook.com' in href and ('/reel/' in href or '/videos/' in href):
+                                        clean_href = href.split('?')[0]
+                                        if clean_href not in seen_urls:
+                                            seen_urls.add(clean_href)
+                                            media_list.append({
+                                                'id': f"ddg-{len(media_list)}",
+                                                'type': 'video',
+                                                'url': clean_href,
+                                                'thumbnail': None, # Frontend tự sinh gradient
+                                                'title': title,
+                                                'is_search_result': True
+                                            })
+                except Exception as e:
+                    print(f"[Search Error] {str(e)}")
+
+            # --- CHIẾN THUẬT 2: YT-DLP VỚI COOKIE (Cho video lẻ hoặc nếu Search thất bại) ---
             if len(media_list) == 0:
+                print("[Strategy 2] Trying yt-dlp with Cookie...")
+                cookie_file_path = None
+                
                 try:
-                    print("[Strategy 4] yt-dlp fallback...")
+                    # Tạo file cookie tạm thời
+                    if user_cookies:
+                        fd, cookie_file_path = tempfile.mkstemp(suffix='.txt', text=True)
+                        # yt-dlp cần format Netscape, nhưng ta thử ghi header cookie xem có ăn may không
+                        # Hoặc tốt nhất là người dùng paste nội dung file Netscape vào
+                        with os.fdopen(fd, 'w') as f:
+                            f.write(user_cookies)
+                    
                     ydl_opts = {
-                        'quiet': True, 'no_warnings': True, 'extract_flat': 'in_playlist',
-                        'noplaylist': False, 'ignoreerrors': True,
-                        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ...'
+                        'quiet': True,
+                        'no_warnings': True,
+                        'extract_flat': 'in_playlist', # Quét nhanh playlist
+                        'noplaylist': False,
+                        'ignoreerrors': True,
+                        'cache_dir': '/tmp/',
+                        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                     }
+                    
+                    if cookie_file_path:
+                        ydl_opts['cookiefile'] = cookie_file_path
+
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                         info = ydl.extract_info(url, download=False)
-                        entries = info.get('entries', [info]) if 'entries' in info or 'url' in info else []
                         
+                        entries = []
+                        if 'entries' in info: entries = info['entries']
+                        elif 'url' in info: entries = [info]
+
                         for entry in entries:
                             if not entry: continue
-                            u = entry.get('url')
-                            if u and u not in seen_ids: # url của yt-dlp flat thường là link gốc hoặc ID
-                                media_list.append({
-                                    'id': f"yt-{len(media_list)}",
-                                    'type': 'video', 
-                                    'url': u, 
-                                    'title': entry.get('title', 'Video'),
-                                    'thumbnail': None,
-                                    'is_search_result': True
-                                })
-                except: pass
+                            video_url = entry.get('url')
+                            if video_url:
+                                if video_url not in seen_urls:
+                                    seen_urls.add(video_url)
+                                    media_list.append({
+                                        'id': f"yt-{len(media_list)}",
+                                        'type': 'video',
+                                        'url': video_url,
+                                        'thumbnail': entry.get('thumbnail'),
+                                        'title': entry.get('title', 'Facebook Video'),
+                                        'is_search_result': True
+                                    })
+                            if len(media_list) >= 50: break
 
-            # Fallback Demo
+                except Exception as e:
+                    print(f"[yt-dlp Error] {str(e)}")
+                finally:
+                    # Dọn dẹp file cookie
+                    if cookie_file_path and os.path.exists(cookie_file_path):
+                        os.remove(cookie_file_path)
+
+            # --- FALLBACK DEMO (Chỉ hiện khi thất bại hoàn toàn) ---
             if not media_list:
-                print("[API] All failed -> Demo.")
+                print("[API] All methods failed -> Demo.")
+                status_msg = "Không tìm thấy video. Vui lòng kiểm tra Cookie." if user_cookies else "Không tìm thấy (Cần nhập Cookie Facebook)"
                 media_list = [{
                     'id': 'demo-1',
                     'type': 'video',
                     'url': 'https://www.w3schools.com/html/mov_bbb.mp4',
                     'thumbnail': None,
-                    'title': 'Không tìm thấy video (Demo)',
+                    'title': status_msg,
                     'is_demo': True
                 }]
 
-            self.wfile.write(json.dumps({'results': media_list[:100]}).encode('utf-8'))
+            self.wfile.write(json.dumps({'results': media_list}).encode('utf-8'))
 
         except Exception as e:
             self.wfile.write(json.dumps({'error': str(e)}).encode('utf-8'))
