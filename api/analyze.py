@@ -4,7 +4,7 @@ import json
 import requests
 
 # CẤU HÌNH RAPID API (Bạn cần thay Key của mình vào đây hoặc dùng biến môi trường)
-RAPID_API_KEY = "YOUR_RAPID_API_KEY_HERE" 
+RAPID_API_KEY = "5c807f67a3msha8f5fdfcc6241fbp1aaa13jsn26e9650a4325" 
 RAPID_API_HOST = "facebook-reel-and-video-downloader.p.rapidapi.com" # Ví dụ host
 
 class handler(BaseHTTPRequestHandler):
