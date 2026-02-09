@@ -1,62 +1,92 @@
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import requests
+import json
+
+# --- CẤU HÌNH RAPID API ---
+RAPID_API_KEY = "5c807f67a3msha8f5fdfcc6241fbp1aaa13jsn26e9650a4325"
+RAPID_API_HOST = "facebook-videos-reels-downloader.p.rapidapi.com"
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         query = parse_qs(urlparse(self.path).query)
-        file_url = query.get('url', [None])[0]
+        fb_url = query.get('url', [None])[0] # Đây là link bài viết FB
         filename = query.get('filename', ['video.mp4'])[0]
 
-        if not file_url:
+        if not fb_url:
             self.send_response(400)
             self.end_headers()
             self.wfile.write(b'Missing URL')
             return
 
+        # 1. RESOLVE LINK QUA RAPID API
+        direct_download_url = fb_url # Mặc định nếu là link mp4 rồi
+        
+        # Nếu chưa phải mp4 (tức là link fb), gọi Rapid để lấy link mp4
+        if 'facebook.com' in fb_url and '.mp4' not in fb_url:
+            print(f"[Download] Resolving via RapidAPI: {fb_url}")
+            try:
+                api_url = f"https://{RAPID_API_HOST}/get-video-info"
+                querystring = {"url": fb_url}
+                headers = {
+                    "x-rapidapi-key": RAPID_API_KEY,
+                    "x-rapidapi-host": RAPID_API_HOST
+                }
+                
+                api_res = requests.get(api_url, headers=headers, params=querystring)
+                data = api_res.json()
+                
+                # Tìm link HD hoặc SD
+                found_link = None
+                if 'links' in data and isinstance(data['links'], dict):
+                     found_link = data['links'].get('hd') or data['links'].get('sd')
+                elif 'download' in data and isinstance(data['download'], list):
+                     for item in data['download']:
+                         if item.get('url'): 
+                             found_link = item.get('url')
+                             break
+                
+                if found_link:
+                    direct_download_url = found_link
+                    print("[Download] Link resolved successfully.")
+                else:
+                    print("[Download] RapidAPI did not return a valid video link.")
+                    # Nếu lỗi, thử tiếp tục với url gốc (biết đâu may mắn)
+            
+            except Exception as e:
+                print(f"[Download] RapidAPI Error: {e}")
+
+        # 2. STREAM FILE VỀ CLIENT
         try:
-            # Headers giả lập trình duyệt để CDN cho phép tải
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Referer': 'https://www.facebook.com/',
-                'Origin': 'https://www.facebook.com'
+            # Fake headers để tải từ CDN FB
+            stream_headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+                'Referer': 'https://www.facebook.com/'
             }
 
-            # stream=True cực kỳ quan trọng trên Vercel để tránh tràn RAM
-            with requests.get(file_url, headers=headers, stream=True, timeout=60) as r:
+            with requests.get(direct_download_url, headers=stream_headers, stream=True, timeout=60) as r:
                 if r.status_code >= 400:
-                    # Nếu link gốc lỗi (ví dụ hết hạn), báo lỗi về client
                     self.send_response(r.status_code)
                     self.end_headers()
-                    self.wfile.write(f"Source URL Error: {r.status_code}".encode())
+                    self.wfile.write(f"Source Error: {r.status_code}".encode())
                     return
 
                 self.send_response(200)
-                
-                # Forward Content-Type chuẩn (thường là video/mp4)
-                content_type = r.headers.get('Content-Type', 'video/mp4')
-                self.send_header('Content-Type', content_type)
-                
-                # Set tên file tải về
+                self.send_header('Content-Type', r.headers.get('Content-Type', 'video/mp4'))
                 self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
                 self.send_header('Access-Control-Allow-Origin', '*')
                 
-                # Forward Content-Length nếu có (để hiện thanh tiến trình)
                 if 'Content-Length' in r.headers:
                     self.send_header('Content-Length', r.headers['Content-Length'])
                 
                 self.end_headers()
 
-                # Stream dữ liệu
                 for chunk in r.iter_content(chunk_size=8192):
-                    if chunk:
-                        self.wfile.write(chunk)
+                    if chunk: self.wfile.write(chunk)
 
         except Exception as e:
-            print(f"Download Proxy Error: {e}")
+            print(f"Stream Error: {e}")
             try:
                 self.send_response(500)
                 self.end_headers()
-                self.wfile.write(str(e).encode())
-            except:
-                pass
+            except: pass
