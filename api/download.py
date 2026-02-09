@@ -15,37 +15,48 @@ class handler(BaseHTTPRequestHandler):
             return
 
         try:
-            # Headers giả lập để tránh bị chặn bởi CDN Facebook
+            # Headers giả lập trình duyệt để CDN cho phép tải
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Referer': 'https://www.facebook.com/',
-                'Accept': '*/*',
-                'Connection': 'keep-alive'
+                'Origin': 'https://www.facebook.com'
             }
 
-            # stream=True để tải file lớn mà không tràn RAM
+            # stream=True cực kỳ quan trọng trên Vercel để tránh tràn RAM
             with requests.get(file_url, headers=headers, stream=True, timeout=60) as r:
-                r.raise_for_status()
+                if r.status_code >= 400:
+                    # Nếu link gốc lỗi (ví dụ hết hạn), báo lỗi về client
+                    self.send_response(r.status_code)
+                    self.end_headers()
+                    self.wfile.write(f"Source URL Error: {r.status_code}".encode())
+                    return
 
                 self.send_response(200)
                 
-                # Lấy Content-Type từ nguồn hoặc mặc định mp4
+                # Forward Content-Type chuẩn (thường là video/mp4)
                 content_type = r.headers.get('Content-Type', 'video/mp4')
                 self.send_header('Content-Type', content_type)
                 
+                # Set tên file tải về
                 self.send_header('Content-Disposition', f'attachment; filename="{filename}"')
                 self.send_header('Access-Control-Allow-Origin', '*')
                 
+                # Forward Content-Length nếu có (để hiện thanh tiến trình)
                 if 'Content-Length' in r.headers:
                     self.send_header('Content-Length', r.headers['Content-Length'])
                 
                 self.end_headers()
 
-                # Gửi dữ liệu theo từng chunk 8KB
+                # Stream dữ liệu
                 for chunk in r.iter_content(chunk_size=8192):
                     if chunk:
                         self.wfile.write(chunk)
 
         except Exception as e:
-            # Chỉ log lỗi, không gửi response mới nếu headers đã gửi
-            print(f"Download Error: {e}")
+            print(f"Download Proxy Error: {e}")
+            try:
+                self.send_response(500)
+                self.end_headers()
+                self.wfile.write(str(e).encode())
+            except:
+                pass
