@@ -19,9 +19,9 @@ class handler(BaseHTTPRequestHandler):
             query = parse_qs(urlparse(self.path).query)
             url = query.get('url', [None])[0]
             
-            # Lấy Google Key từ Header
-            google_key = self.headers.get('x-google-key', None)
-            google_cx = self.headers.get('x-google-cx', None)
+            # Lấy Google Key từ Header hoặc dùng Key cứng đã cung cấp
+            google_key = self.headers.get('x-google-key') or "AIzaSyDfNE8xsUaAUK4RQ-L7Pvafi8txySNUDJ4"
+            google_cx = self.headers.get('x-google-cx') or "d35588bebf5864544"
 
             if not url:
                 self.wfile.write(json.dumps({'error': 'Thiếu URL'}).encode('utf-8'))
