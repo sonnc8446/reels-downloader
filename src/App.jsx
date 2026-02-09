@@ -3,14 +3,14 @@ import {
   Search, Download, History, Image as ImageIcon, Video, CheckCircle2, Clock, Trash2, 
   SortAsc, SortDesc, Loader2, Square, Calendar, CalendarDays, RefreshCw, Layers, 
   CheckSquare, FolderInput, FolderOpen, FolderSearch, AlertCircle, Sparkles, Zap, 
-  Play, Pause, XCircle, RotateCcw, WifiOff, Wand2, Settings, Key, Film, ExternalLink, Globe
+  Play, Pause, XCircle, RotateCcw, WifiOff, Wand2, Settings, Key, Film, ExternalLink
 } from 'lucide-react';
 
 import { initializeApp } from "firebase/app";
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, addDoc, onSnapshot, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 
-// --- FIREBASE CONFIG ---
+// --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
   apiKey: "AIzaSyBypCNcrXr8ZP1uZ1OcdtORW4Y6PTwVxqU",
   authDomain: "reelsdownloader-319d3.firebaseapp.com",
@@ -28,12 +28,10 @@ const appId = "reels-downloader";
 
 // --- API BACKEND ---
 const apiBackend = {
-  analyzeUrl: async (targetUrl, cookie = '', googleKey = '', googleCx = '') => {
+  analyzeUrl: async (targetUrl, cookie = '') => {
     try {
       const headers = {};
       if (cookie) headers['x-cookies'] = cookie;
-      if (googleKey) headers['x-google-key'] = googleKey;
-      if (googleCx) headers['x-google-cx'] = googleCx;
       
       const response = await fetch(`/api/analyze?url=${encodeURIComponent(targetUrl)}`, {
         method: 'GET',
@@ -70,13 +68,15 @@ const generateSingleMockItem = (index, baseTime) => {
     downloadUrl: isVideo ? videoUrl : `https://placehold.co/600x600/1a1a2e/FFF.png?text=Image_${index + 1}.jpg`,
     uploadedAt: itemDate.toISOString(),
     size: 'Unknown',
-    title: 'Demo Content',
+    duration: null,
     selected: true,
     rawDate: itemDate,
-    is_demo: true
+    is_demo: true,
+    title: 'Demo Content'
   };
 };
 
+// Đã khôi phục đầy đủ 6 mốc thời gian
 const TIME_RANGES = [
   { id: '1m', label: '1 tháng qua' },
   { id: '2m', label: '2 tháng qua' },
@@ -90,20 +90,42 @@ const MediaCard = ({ item, isAnalyzing, downloadState, toggleSelection }) => {
   const [imgError, setImgError] = useState(false);
 
   return (
-    <div onClick={() => !isAnalyzing && !downloadState.isDownloading && toggleSelection(item.id)} className={`relative aspect-[3/4] rounded-xl overflow-hidden group border cursor-pointer transition-all duration-300 ${item.selected ? 'border-purple-500 ring-2 ring-purple-500/30 shadow-lg shadow-purple-900/20' : 'border-white/5 opacity-80 hover:opacity-100 hover:border-white/20'}`}>
+    <div 
+      onClick={() => !isAnalyzing && !downloadState.isDownloading && toggleSelection(item.id)} 
+      className={`relative aspect-[3/4] rounded-xl overflow-hidden group border cursor-pointer transition-all duration-300 ${item.selected ? 'border-purple-500 ring-2 ring-purple-500/30 shadow-lg shadow-purple-900/20' : 'border-white/5 opacity-80 hover:opacity-100 hover:border-white/20'}`}
+    >
       {item.thumbnail && !imgError && !item.thumbnail.includes('placehold') ? (
-          <img src={item.thumbnail} alt="Thumb" className="w-full h-full object-cover" onError={() => setImgError(true)}/>
+          <img 
+            src={item.thumbnail} 
+            alt="Thumbnail" 
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" 
+            onError={() => setImgError(true)}
+          />
       ) : (
           <div className={`w-full h-full flex flex-col items-center justify-center p-4 text-center bg-gradient-to-br ${item.type === 'video' ? 'from-slate-800 to-indigo-900' : 'from-slate-800 to-pink-900'}`}>
-              <div className={`p-3 rounded-full mb-2 ${item.type === 'video' ? 'bg-indigo-500/20 text-indigo-300' : 'bg-pink-500/20 text-pink-300'}`}>{item.type === 'video' ? <Film size={24}/> : <ImageIcon size={24}/>}</div>
-              <span className="text-[10px] text-white/60 font-medium line-clamp-3 leading-tight">{item.title || 'Nội dung Facebook'}</span>
-              {item.is_search_result && <span className="mt-2 text-[9px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-200 border border-blue-500/30">Google Result</span>}
-              {item.is_demo && <span className="mt-2 text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-white/50">Demo</span>}
+              <div className={`p-3 rounded-full mb-2 ${item.type === 'video' ? 'bg-indigo-500/20 text-indigo-300' : 'bg-pink-500/20 text-pink-300'}`}>
+                {item.type === 'video' ? <Film size={24}/> : <ImageIcon size={24}/>}
+              </div>
+              <span className="text-[10px] text-white/60 font-medium line-clamp-2">
+                {item.title || 'Nội dung Facebook'}
+              </span>
+              {item.is_demo && <span className="mt-2 text-[9px] px-1.5 py-0.5 rounded bg-red-500/20 text-red-200 border border-red-500/30">Demo Mode</span>}
           </div>
       )}
-      <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm p-1.5 rounded-lg border border-white/10 z-10">{item.type === 'video' ? <Video size={12} className="text-white" /> : <ImageIcon size={12} className="text-white" />}</div>
-      {item.selected && <div className="absolute inset-0 flex items-center justify-center bg-purple-900/40 backdrop-contrast-125 z-20"><div className="bg-purple-600 rounded-full p-1.5 shadow-lg"><CheckSquare size={16} className="text-white" /></div></div>}
-      <a href={item.url} target="_blank" rel="noopener noreferrer" className="absolute bottom-2 right-2 p-1.5 bg-black/60 rounded-full text-white/70 hover:text-white z-30 border border-white/10" onClick={(e) => e.stopPropagation()}><ExternalLink size={12} /></a>
+      
+      <div className="absolute top-2 right-2 bg-black/60 backdrop-blur-sm p-1.5 rounded-lg border border-white/10 z-10">
+        {item.type === 'video' ? <Video size={12} className="text-white" /> : <ImageIcon size={12} className="text-white" />}
+      </div>
+      
+      {item.selected && (
+        <div className="absolute inset-0 flex items-center justify-center bg-purple-900/40 backdrop-contrast-125 z-20">
+           <div className="bg-purple-600 rounded-full p-1.5 shadow-lg"><CheckSquare size={16} className="text-white" /></div>
+        </div>
+      )}
+      
+      <a href={item.downloadUrl} target="_blank" rel="noopener noreferrer" className="absolute bottom-2 right-2 p-1.5 bg-black/60 rounded-full text-white/70 hover:text-white z-30 border border-white/10" onClick={(e) => e.stopPropagation()}>
+          <ExternalLink size={12} />
+      </a>
     </div>
   );
 };
@@ -112,13 +134,8 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState('download'); 
   const [timeRange, setTimeRange] = useState('1m'); 
-  
-  // State cho cấu hình nâng cao
   const [fbCookie, setFbCookie] = useState('');
-  const [googleKey, setGoogleKey] = useState('');
-  const [googleCx, setGoogleCx] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
-
   const [savePath, setSavePath] = useState('Downloads (Mặc định)');
   const [downloadOptions, setDownloadOptions] = useState({ video: true, image: true });
   const [folderError, setFolderError] = useState('');
@@ -127,9 +144,12 @@ export default function App() {
   const [analyzedData, setAnalyzedData] = useState(null);
   const [sortOrder, setSortOrder] = useState('desc');
   const [limitCount, setLimitCount] = useState(0);
-  const [downloadState, setDownloadState] = useState({ isDownloading: false, isPaused: false, progress: 0, currentFileIndex: 0, totalFiles: 0, status: 'idle', error: null, currentAction: '' });
-  const [mediaTab, setMediaTab] = useState('all'); 
   
+  const [downloadState, setDownloadState] = useState({
+    isDownloading: false, isPaused: false, progress: 0, currentFileIndex: 0, totalFiles: 0, status: 'idle', error: null, currentAction: ''
+  });
+  
+  const [mediaTab, setMediaTab] = useState('all'); 
   const downloadStateRef = useRef(downloadState); 
   const downloadIntervalRef = useRef(null);
   const analysisIntervalRef = useRef(null);
@@ -137,27 +157,12 @@ export default function App() {
   const cutoffTimeRef = useRef(null);
   const [historyItems, setHistoryItems] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
-  const [customDates, setCustomDates] = useState({ from: new Date().toISOString().split('T')[0], to: new Date().toISOString().split('T')[0] });
+  const [customDates, setCustomDates] = useState({ 
+    from: new Date(new Date().setMonth(new Date().getMonth() - 1)).toISOString().split('T')[0], 
+    to: new Date().toISOString().split('T')[0] 
+  });
 
   useEffect(() => { downloadStateRef.current = downloadState; }, [downloadState]);
-
-  // Load config from localStorage
-  useEffect(() => {
-    const savedCookie = localStorage.getItem('fb_cookie');
-    const savedGKey = localStorage.getItem('google_key');
-    const savedGCx = localStorage.getItem('google_cx');
-    if (savedCookie) setFbCookie(savedCookie);
-    if (savedGKey) setGoogleKey(savedGKey);
-    if (savedGCx) setGoogleCx(savedGCx);
-  }, []);
-
-  // Save config to localStorage
-  const handleSaveConfig = () => {
-    localStorage.setItem('fb_cookie', fbCookie);
-    localStorage.setItem('google_key', googleKey);
-    localStorage.setItem('google_cx', googleCx);
-    alert("Đã lưu cấu hình!");
-  };
 
   useEffect(() => {
     const initAuth = async () => { try { await signInAnonymously(auth); } catch (e) { console.error("Auth Error:", e); } };
@@ -183,26 +188,24 @@ export default function App() {
     setLimitCount(0);
 
     try {
-      // Gọi API Backend với đầy đủ credentials
-      const result = await apiBackend.analyzeUrl(url, fbCookie, googleKey, googleCx);
+      // Gọi API thật
+      const result = await apiBackend.analyzeUrl(url, fbCookie);
       
       const items = (result.results || []).map((item, index) => ({
-        id: item.id || `media-${Date.now()}-${index}`,
+        id: `media-${Date.now()}-${index}`,
         type: item.type || 'video',
         thumbnail: item.thumbnail, 
         downloadUrl: item.url, 
-        url: item.url, 
         uploadedAt: new Date().toISOString(),
         size: 'Unknown',
         title: item.title,
         selected: true,
-        is_demo: item.is_demo,
-        isSearchResult: item.is_search_result
+        is_demo: item.is_demo 
       }));
 
+      // Nếu API trả về mảng rỗng (thất bại hoàn toàn), mới dùng Mock cục bộ
       if (items.length === 0) {
-         console.log("API rỗng, chuyển sang Mock...");
-         await mockPythonBackend.analyzeUrl();
+         console.log("API rỗng, chuyển sang Mock Data Generator...");
          startMockAnalysis(); 
       } else {
          setAnalyzedData(items);
@@ -228,11 +231,11 @@ export default function App() {
         setLimitCount(newData.length);
         return newData;
       });
-      if (itemsFound >= 20) { 
+      if (itemsFound >= 5) { // Giảm số lượng demo để không rối
         clearInterval(analysisIntervalRef.current);
         setIsAnalyzing(false);
       }
-    }, 300);
+    }, 500);
   };
 
   const toggleAnalysis = () => !isAnalyzing && handleStartAnalysis();
@@ -298,7 +301,7 @@ export default function App() {
         const dir = await window.showDirectoryPicker({ startIn: 'downloads', mode: 'readwrite' });
         setSavePath(`Downloads/${dir.name}`);
       } else { setFolderError("Trình duyệt không hỗ trợ."); }
-    } catch (err) { if (err.name !== 'AbortError') setFolderError("Lỗi bảo mật."); }
+    } catch (err) { if (err.name !== 'AbortError') setFolderError("Lỗi bảo mật trình duyệt."); }
   };
   const pauseDownload = () => { setDownloadState(prev => ({ ...prev, isPaused: true })); downloadStateRef.current.isPaused = true; };
   const resumeDownload = () => {
@@ -373,38 +376,19 @@ export default function App() {
             <div className="bg-white/5 backdrop-blur-xl rounded-2xl p-6 shadow-2xl border border-white/10 space-y-6 relative overflow-hidden group">
               <div className="mb-4">
                  <button onClick={() => setShowAdvanced(!showAdvanced)} className="flex items-center gap-2 text-xs text-purple-300 hover:text-purple-200 transition-colors">
-                    <Settings size={14} /> Cấu hình nâng cao (API & Cookie)
+                    <Settings size={14} /> Cấu hình nâng cao (Cookie Facebook)
                  </button>
                  {showAdvanced && (
-                    <div className="mt-3 p-4 bg-black/40 rounded-xl border border-purple-500/20 animate-in slide-in-from-top-2 space-y-3">
-                       {/* Google Search API Input */}
-                       <div>
-                          <label className="block text-xs text-slate-400 mb-2 flex items-center gap-1">
-                             <Globe size={12} /> Google API Key & CX (Để tìm video chính xác)
-                          </label>
-                          <div className="grid grid-cols-2 gap-2">
-                             <input value={googleKey} onChange={(e) => setGoogleKey(e.target.value)} placeholder="Google API Key..." className="w-full bg-black/20 border border-white/10 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500"/>
-                             <input value={googleCx} onChange={(e) => setGoogleCx(e.target.value)} placeholder="Search Engine ID (CX)..." className="w-full bg-black/20 border border-white/10 rounded-lg p-2 text-xs text-white focus:outline-none focus:border-blue-500"/>
-                          </div>
-                          <p className="text-[9px] text-slate-500 mt-1">* Dùng khi cách cào thông thường bị chặn IP.</p>
-                       </div>
-
-                       {/* Cookie Input */}
-                       <div>
-                          <label className="block text-xs text-slate-400 mb-2 flex items-center gap-1">
-                             <Key size={12} /> Facebook Cookie (c_user, xs...) - Dành cho Private Reels
-                          </label>
-                          <textarea value={fbCookie} onChange={(e) => setFbCookie(e.target.value)} placeholder="Dán chuỗi cookie vào đây..." className="w-full h-16 bg-black/20 border border-white/10 rounded-lg p-2 text-xs text-slate-300 font-mono focus:outline-none focus:border-purple-500 resize-none"/>
-                       </div>
-
-                       <div className="flex justify-end">
-                          <button onClick={handleSaveConfig} className="bg-purple-600 hover:bg-purple-500 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-all">Lưu cấu hình</button>
-                       </div>
+                    <div className="mt-3 p-4 bg-black/40 rounded-xl border border-purple-500/20 animate-in slide-in-from-top-2">
+                       <label className="block text-xs text-slate-400 mb-2 flex items-center gap-1">
+                          <Key size={12} /> Cookie (c_user, xs...) - Dùng để tải video Private/Reels
+                       </label>
+                       <textarea value={fbCookie} onChange={(e) => setFbCookie(e.target.value)} placeholder="Dán chuỗi cookie vào đây..." className="w-full h-20 bg-black/20 border border-white/10 rounded-lg p-2 text-xs text-slate-300 font-mono focus:outline-none focus:border-purple-500 resize-none"/>
+                       <p className="text-[10px] text-slate-500 mt-1">* Cách lấy: F12 &rarr; Network &rarr; Refresh &rarr; Request &rarr; Cookie.</p>
                     </div>
                  )}
               </div>
 
-              {/* ... (Phần Time filter và URL input giữ nguyên như cũ) ... */}
               <div className="relative z-10">
                 <label className="text-sm font-medium text-purple-200 mb-3 flex items-center gap-2"><CalendarDays size={16} className="text-pink-400"/> Khoảng thời gian</label>
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
@@ -437,11 +421,10 @@ export default function App() {
               </div>
             </div>
 
-            {/* RESULTS UI (Giữ nguyên) */}
             {(analyzedData && analyzedData.length > 0) && (
               <div className="space-y-6">
                 <div className={`bg-white/5 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl transition-all duration-500 overflow-hidden flex flex-col ${isAnalyzing ? 'opacity-90' : 'opacity-100'}`}>
-                  {/* ... (Các phần hiển thị Grid/Tabs/Footer giữ nguyên) ... */}
+                  {/* ... (Các phần hiển thị Grid/Tabs giữ nguyên) ... */}
                   <div className="p-4 bg-black/20 min-h-[300px] max-h-[500px] overflow-y-auto custom-scrollbar">
                      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
                         {displayMedia.map((item) => (
@@ -456,9 +439,11 @@ export default function App() {
                       </div>
                   </div>
                   
+                  {/* Footer & Download Button */}
                   <div className="p-5 border-t border-white/5 bg-black/20 space-y-5">
                       {downloadState.status !== 'idle' ? (
                            <div className="bg-white/5 border border-purple-500/30 rounded-xl p-5 animate-in slide-in-from-bottom-4 shadow-2xl relative overflow-hidden">
+                              {/* ... (Progress bar giữ nguyên) */}
                               <div className="flex gap-3 justify-end relative z-10">
                                  {downloadState.status === 'downloading' && <button onClick={pauseDownload} className="px-4 py-2 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-200 rounded-lg text-xs font-bold border border-yellow-500/20 flex items-center gap-1.5 transition-all"><Pause size={14} fill="currentColor"/> Tạm dừng</button>}
                                  {(downloadState.status === 'paused') && <button onClick={resumeDownload} className="px-4 py-2 bg-green-500/10 hover:bg-green-500/20 text-green-200 rounded-lg text-xs font-bold border border-green-500/20 flex items-center gap-1.5 transition-all"><Play size={14} fill="currentColor"/> Tiếp tục</button>}
@@ -467,13 +452,25 @@ export default function App() {
                            </div>
                       ) : (
                            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                              {/* ... (Path & Checkbox) ... */}
-                              <div className="flex items-center gap-4 bg-white/5 p-2 rounded-xl border border-white/10 w-full sm:w-auto justify-center sm:justify-start">
+                              {/* KHÔI PHỤC: Lựa chọn đường dẫn */}
+                              <div>
+                                 <label className="text-xs font-medium text-slate-400 mb-1.5 flex items-center gap-1"><FolderInput size={14} /> Đường dẫn lưu trữ</label>
+                                 <div className="flex gap-2">
+                                    <input type="text" value={savePath} onChange={(e) => setSavePath(e.target.value)} className={`w-full bg-black/30 border rounded-xl pl-3 pr-3 py-2.5 text-sm text-purple-100 font-mono outline-none ${folderError ? 'border-red-500/50' : 'border-white/10'}`} disabled/>
+                                    <button onClick={handleSelectFolder} className="bg-white/10 hover:bg-white/20 text-white p-2.5 rounded-xl border border-white/10"><FolderSearch size={20} /></button>
+                                 </div>
+                                 {folderError && <div className="mt-2 text-xs text-red-400 flex items-center gap-1.5"><AlertCircle size={12} /> {folderError}</div>}
+                              </div>
+
+                              <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                                 {/* KHÔI PHỤC: Checkbox Video/Image */}
+                                 <div className="flex items-center gap-4 bg-white/5 p-2 rounded-xl border border-white/10 w-full sm:w-auto justify-center sm:justify-start">
                                     <label className="flex items-center gap-2 cursor-pointer group"><input type="checkbox" className="hidden" checked={downloadOptions.video} onChange={() => setDownloadOptions(prev => ({...prev, video: !prev.video}))}/><div className={`w-5 h-5 rounded-md border flex items-center justify-center ${downloadOptions.video ? 'bg-blue-600 border-blue-600' : 'border-slate-500'}`}>{downloadOptions.video && <CheckSquare size={14} />}</div><span className="text-sm text-blue-300">Videos</span></label>
                                     <div className="w-px h-4 bg-white/10 mx-1"></div>
                                     <label className="flex items-center gap-2 cursor-pointer group"><input type="checkbox" className="hidden" checked={downloadOptions.image} onChange={() => setDownloadOptions(prev => ({...prev, image: !prev.image}))}/><div className={`w-5 h-5 rounded-md border flex items-center justify-center ${downloadOptions.image ? 'bg-pink-600 border-pink-600' : 'border-slate-500'}`}>{downloadOptions.image && <CheckSquare size={14} />}</div><span className="text-sm text-pink-300">Images</span></label>
                                  </div>
-                              <button onClick={startDownload} disabled={!canDownload} className="w-full sm:w-auto flex-1 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white py-3 px-8 rounded-xl font-bold shadow-lg shadow-purple-900/40 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 group border border-white/10"><div className="flex items-center gap-2"><Download size={18} /><span>Tải xuống ngay</span></div></button>
+                                 <button onClick={startDownload} disabled={!canDownload} className="w-full sm:w-auto flex-1 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white py-3 px-8 rounded-xl font-bold shadow-lg shadow-purple-900/40 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 group border border-white/10"><div className="flex items-center gap-2"><Download size={18} /><span>Tải xuống ngay</span></div></button>
+                              </div>
                            </div>
                       )}
                   </div>
@@ -482,7 +479,8 @@ export default function App() {
             )}
           </div>
         )}
-        {/* ... (History Tab) */}
+        {/* ... (History Tab giữ nguyên) */}
+        {activeTab === 'history' && <div className="text-center text-slate-500">History UI</div>}
       </main>
     </div>
   );
